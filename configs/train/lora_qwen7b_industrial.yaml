@@ -1,31 +1,32 @@
 # SFT LoRA 训练配置（Qwen2.5-7B + 公开工业数据集占位）
 # 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml
-# 说明：实验参数一律在此修改，代码不硬编码。
+# 说明：实验参数一律在此修改，代码不硬编码；完整方案见 docs/训练方案.md
 
 ### 模型
-model_name_or_path: Qwen/Qwen2.5-7B
+model_name_or_path: Qwen/Qwen2.5-7B-Instruct   # 或 Qwen/Qwen2.5-7B（见 docs/训练方案.md §2）
 trust_remote_code: true
 
-### 数据（TODO M1: 替换为实际公开工业数据集）
-dataset: gsm8k              # HF 数据集名
+### 数据（已定案 Mining-Engineering 矿建工程系列，中文，MIT，5,287 条）
+dataset: acnul/Mining-Engineering-SFT   # HF 数据集名（字段：prompt/response/source）
 dataset_revision: main      # 固定 revision，保证可复现
-max_train_samples: null     # 调试时可设小值（如 512），正式训练留 null
-max_seq_length: 1024
+max_train_samples: null     # 冒烟调试设 512；正式训练留 null（全量 5,287 条）
+max_seq_length: 2048        # 矿建问答 + CoT 回答较长，按 P95 复核（见 docs/训练方案.md §3.4）
 
-### LoRA（QLoRA: 打开 qlora: true 启用 4bit 量化，7B 单卡 24GB 可跑）
-qlora: false
+### LoRA / QLoRA（见 docs/训练方案.md §4）
+qlora: false                # true = 4bit NF4 量化（单卡 24GB 不够跑 LoRA 时启用）
 lora_r: 8
 lora_alpha: 16
 lora_dropout: 0.05
-lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
-### 训练
-per_device_train_batch_size: 2
-gradient_accumulation_steps: 8
+### 训练（见 docs/训练方案.md §5，5090 优化版）
+per_device_train_batch_size: 4      # 5090 32GB 显存充裕；小卡改回 2
+gradient_accumulation_steps: 4      # 全局 batch = 4 × 4 = 16
 learning_rate: 2.0e-4
 lr_scheduler_type: cosine
 warmup_ratio: 0.03
 num_train_epochs: 3.0
+weight_decay: 0.01
 bf16: true
 gradient_checkpointing: true
 logging_steps: 10
@@ -33,7 +34,16 @@ save_steps: 500
 save_total_limit: 2
 seed: 42
 
+### 5090 加速开关（docs/训练方案.md §5.2，已启用）
+torch_compile: true             # PyTorch 2.7+，首次编译预热 1-2 分钟，7B 提速 10~30%
+attn_implementation: sdpa       # 默认 sdpa；严禁 flash_attention_2（sm_120 不支持）
+optim: adamw_torch_fused        # 融合优化器，省显存 + 提速
+dataloader_num_workers: 4       # 数据加载不拖 GPU
+
+### 断点续训（可选）
+# 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml --resume
+
 ### 输出与追踪
-output_dir: output/qwen2.5-7b-industrial-sft
+output_dir: output/qwen2.5-7b-mining-eng-sft
 report_to: wandb            # 无 wandb 环境可改 none
-run_name: qwen2.5-7b-industrial-sft
+run_name: qwen2.5-7b-mining-eng-sft

@@ -14,9 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_train_config_loads():
     with open(ROOT / "configs" / "train" / "lora_qwen7b_industrial.yaml", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    assert cfg["model_name_or_path"] == "Qwen/Qwen2.5-7B"
+    assert "Qwen" in cfg["model_name_or_path"]
     assert cfg["lora_r"] > 0
     assert "output_dir" in cfg
+    # M1 定案数据：Mining-Engineering 矿建工程指令集
+    assert "Mining-Engineering" in cfg["dataset"]
+    # 5090 加速开关（docs/训练方案.md §5.2）
+    assert cfg.get("torch_compile") is True
+    assert cfg.get("attn_implementation") == "sdpa"
+    assert cfg.get("optim") == "adamw_torch_fused"
 
 
 def test_eval_config_loads():

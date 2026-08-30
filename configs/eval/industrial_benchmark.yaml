@@ -1,9 +1,14 @@
-# 评测配置（骨架）
+# 评测配置（M1 定案：Mining-Engineering 官方评测集）
 # 用法：bash scripts/eval.sh configs/eval/industrial_benchmark.yaml
 
-name: industrial-benchmark-v1
-model_name_or_path: Qwen/Qwen2.5-7B
-adapter_path: output/qwen2.5-7b-industrial-sft   # 训练输出的 LoRA adapter
+name: mining-engineering-eval
+model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+adapter_path: output/qwen2.5-7b-mining-eng-sft   # 训练输出的 LoRA adapter
+
+# 官方评测集（301 条，六模块分项统计见 docs/训练方案.md §8）
+eval_dataset: acnul/Mining-Engineering-Eval
+eval_dataset_revision: main
+probe_dataset: acnul/Mining-Engineering-Probe    # 50 条，调参期快速验证
 
 # TODO(M2): 企业方确认指标口径后补充：
-# eval_dataset, metric (accuracy/f1/...), batch_size, max_new_tokens
+# metric (accuracy/f1/...), batch_size, max_new_tokens

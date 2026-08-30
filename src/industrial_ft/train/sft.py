@@ -1,10 +1,13 @@
-"""SFT 训练入口：TRL SFTTrainer + LoRA/QLoRA。
+"""SFT 训练入口：TRL SFTTrainer + LoRA（5090 加速版）。
 
 用法：
     python -m industrial_ft.train.sft --config configs/train/lora_qwen7b_industrial.yaml
     # 或 bash scripts/train.sh [config]
+    # 断点续训：python -m industrial_ft.train.sft --config <cfg> --resume
 
 一切参数来自 yaml 配置，代码不硬编码实验参数。
+加速开关（见 docs/训练方案.md §5.2）：torch_compile / optim / dataloader_num_workers /
+attn_implementation（默认 sdpa，勿用 flash_attention_2——Blackwell sm_120 不支持）。
 """
 from __future__ import annotations
 
@@ -44,6 +47,7 @@ def build_model_and_tokenizer(cfg: dict):
 
     quantization_config = None
     if cfg.get("qlora", False):
+        # 注意：5090 (sm_120) 上 NF4 有性能惩罚且依赖版本敏感，默认不用（见方案 §4.2）
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -51,11 +55,16 @@ def build_model_and_tokenizer(cfg: dict):
             bnb_4bit_use_double_quant=True,
         )
 
+    # 注意力实现：默认 sdpa（PyTorch 2.7+ 对 Blackwell 支持良好）；
+    # 严禁 flash_attention_2（sm_120 不兼容，会直接报错）
+    attn_implementation = cfg.get("attn_implementation", "sdpa")
+
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         trust_remote_code=trust_remote_code,
         quantization_config=quantization_config,
         device_map="auto",
+        attn_implementation=attn_implementation,
     )
     return model, tokenizer
 
@@ -63,6 +72,11 @@ def build_model_and_tokenizer(cfg: dict):
 def main() -> None:
     parser = argparse.ArgumentParser(description="SFT with TRL (LoRA/QLoRA)")
     parser.add_argument("--config", required=True, help="path to yaml config under configs/train/")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="从 output_dir 内最新 checkpoint 断点续训（自动找 checkpoint-* 目录）",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -83,6 +97,7 @@ def main() -> None:
         lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
         warmup_ratio=cfg.get("warmup_ratio", 0.03),
         num_train_epochs=cfg.get("num_train_epochs", 3.0),
+        weight_decay=cfg.get("weight_decay", 0.01),
         bf16=cfg.get("bf16", False),
         gradient_checkpointing=cfg.get("gradient_checkpointing", False),
         logging_steps=cfg.get("logging_steps", 10),
@@ -93,6 +108,10 @@ def main() -> None:
         max_seq_length=cfg.get("max_seq_length", 1024),
         dataset_text_field="text",
         seed=cfg.get("seed", 42),
+        # ---- 5090 加速开关（docs/训练方案.md §5.2）----
+        torch_compile=cfg.get("torch_compile", False),
+        optim=cfg.get("optim", "adamw_torch"),
+        dataloader_num_workers=cfg.get("dataloader_num_workers", 0),
     )
 
     trainer = SFTTrainer(
@@ -103,7 +122,13 @@ def main() -> None:
         peft_config=build_lora_config(cfg),
     )
 
-    trainer.train()
+    if args.resume:
+        resume_from_checkpoint = True  # 自动定位 output_dir 内最新 checkpoint
+        print("[sft] resume: 从 output_dir 最新 checkpoint 续训")
+    else:
+        resume_from_checkpoint = None
+
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     trainer.save_model(cfg["output_dir"])
     print(f"Training done. Adapter saved to {cfg['output_dir']}")
 
