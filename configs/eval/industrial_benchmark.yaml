@@ -10,5 +10,9 @@ eval_dataset: acnul/Mining-Engineering-Eval
 eval_dataset_revision: main
 probe_dataset: acnul/Mining-Engineering-Probe    # 50 条，调参期快速验证
 
+# 生成参数（M1 简化版指标：EM / contain / 分模块）
+max_new_tokens: 256
+batch_size: 8
+
 # TODO(M2): 企业方确认指标口径后补充：
-# metric (accuracy/f1/...), batch_size, max_new_tokens
+# metric (accuracy/f1/...)
