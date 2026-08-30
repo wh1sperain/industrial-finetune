@@ -10,7 +10,7 @@ trust_remote_code: true
 dataset: acnul/Mining-Engineering-SFT   # HF 数据集名（字段：prompt/response/source）
 dataset_revision: main      # 固定 revision，保证可复现
 max_train_samples: null     # 冒烟调试设 512；正式训练留 null（全量 5,287 条）
-max_seq_length: 2048        # 矿建问答 + CoT 回答较长，按 P95 复核（见 docs/训练方案.md §3.4）
+max_length: 2048            # TRL 1.x 字段名（旧版 max_seq_length）；矿建问答+CoT 较长，按 P95 复核
 
 ### LoRA / QLoRA（见 docs/训练方案.md §4）
 qlora: false                # true = 4bit NF4 量化（单卡 24GB 不够跑 LoRA 时启用）
@@ -24,7 +24,7 @@ per_device_train_batch_size: 4      # 5090 32GB 显存充裕；小卡改回 2
 gradient_accumulation_steps: 4      # 全局 batch = 4 × 4 = 16
 learning_rate: 2.0e-4
 lr_scheduler_type: cosine
-warmup_ratio: 0.03
+warmup_steps: 30            # TRL 1.x 字段名（旧版 warmup_ratio）；30 ≈ 3%（全局 batch 16，3 epochs ≈ 991 steps）
 num_train_epochs: 3.0
 weight_decay: 0.01
 bf16: true

@@ -1,4 +1,4 @@
-"""SFT 训练入口：TRL SFTTrainer + LoRA（5090 加速版）。
+"""SFT 训练入口：TRL SFTTrainer + LoRA（5090 加速版，适配 TRL 1.x）。
 
 用法：
     python -m industrial_ft.train.sft --config configs/train/lora_qwen7b_industrial.yaml
@@ -8,6 +8,11 @@
 一切参数来自 yaml 配置，代码不硬编码实验参数。
 加速开关（见 docs/训练方案.md §5.2）：torch_compile / optim / dataloader_num_workers /
 attn_implementation（默认 sdpa，勿用 flash_attention_2——Blackwell sm_120 不支持）。
+
+TRL 1.x API 注意（与 0.10~0.17 的差异）：
+- warmup_ratio → warmup_steps
+- max_seq_length → max_length
+- SFTTrainer(tokenizer=...) → processing_class
 """
 from __future__ import annotations
 
@@ -95,7 +100,8 @@ def main() -> None:
         gradient_accumulation_steps=cfg["gradient_accumulation_steps"],
         learning_rate=cfg["learning_rate"],
         lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
-        warmup_ratio=cfg.get("warmup_ratio", 0.03),
+        # TRL 1.x：warmup_ratio 已移除，改用 warmup_steps（config 默认 30 ≈ 3% @ 全局 batch 16）
+        warmup_steps=cfg.get("warmup_steps", 30),
         num_train_epochs=cfg.get("num_train_epochs", 3.0),
         weight_decay=cfg.get("weight_decay", 0.01),
         bf16=cfg.get("bf16", False),
@@ -105,7 +111,8 @@ def main() -> None:
         save_total_limit=cfg.get("save_total_limit", 2),
         report_to=cfg.get("report_to", "none"),
         run_name=cfg.get("run_name"),
-        max_seq_length=cfg.get("max_seq_length", 1024),
+        # TRL 1.x：max_seq_length 已改名为 max_length
+        max_length=cfg.get("max_length", 2048),
         dataset_text_field="text",
         seed=cfg.get("seed", 42),
         # ---- 5090 加速开关（docs/训练方案.md §5.2）----
@@ -116,9 +123,9 @@ def main() -> None:
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
         args=sft_config,
         train_dataset=train_dataset,
+        processing_class=tokenizer,  # TRL 1.x：原 tokenizer= 参数已改名
         peft_config=build_lora_config(cfg),
     )
 

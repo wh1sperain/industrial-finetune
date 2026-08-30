@@ -11,7 +11,8 @@ requires-python = ">=3.10"
 dependencies = [
     "torch>=2.2",
     "transformers>=4.44",
-    "trl>=0.10.0",
+    # 代码适配 TRL 1.x API（SFTConfig: warmup_steps/max_length，SFTTrainer: processing_class）
+    "trl>=1.12.0,<2.0",
     "peft>=0.12.0",
     "datasets>=2.20.0",
     "accelerate>=0.33.0",
