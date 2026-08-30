@@ -113,7 +113,7 @@ def main() -> None:
         run_name=cfg.get("run_name"),
         # TRL 1.x：max_seq_length 已改名为 max_length
         max_length=cfg.get("max_length", 2048),
-        dataset_text_field="text",
+        # TRL 1.x：数据集直接提供 prompt/completion 字段（见 loader.py），无需 dataset_text_field
         seed=cfg.get("seed", 42),
         # ---- 5090 加速开关（docs/训练方案.md §5.2）----
         torch_compile=cfg.get("torch_compile", False),

@@ -4,8 +4,8 @@ M1 数据已定案：Mining-Engineering 矿建工程系列（中文，MIT，5,28
     https://huggingface.co/datasets/acnul/Mining-Engineering-SFT
 配套评测集：acnul/Mining-Engineering-Eval（301 条）、Probe（50 条）
 
-格式约定：字段 prompt（问题）/ response（回答）/ source（六模块分类），
-统一模板化为 Qwen 训练文本，见 ``format_sample``。
+TRL 1.x 数据约定：SFTTrainer 要求训练集含 prompt（指令）/ completion（回答）字段对，
+loss 只对 completion 计算（prompt 部分不参与）。
 """
 from __future__ import annotations
 
@@ -18,15 +18,16 @@ DEFAULT_DATASET = "acnul/Mining-Engineering-SFT"
 DEFAULT_REVISION = "main"
 
 
-def format_sample(sample: dict) -> str:
-    """把 Mining-Engineering 样本格式化为模型训练文本。
+def format_sample(sample: dict) -> dict:
+    """把 Mining-Engineering 样本拆分为 TRL 1.x 的 prompt/completion 格式。
 
-    字段：prompt（指令/问题）、response（标准回答）、source（知识来源分类）。
-    训练时保留 source 列，用于分模块能力分析（见 docs/训练方案.md §8.1）。
+    原始字段：prompt（指令/问题）、response（标准回答）、source（知识来源分类）。
+    返回：{"prompt": "问：…", "completion": "答：…"}，source 列保留用于分模块分析。
     """
-    prompt = sample.get("prompt", "").strip()
-    response = sample.get("response", "").strip()
-    return f"问：{prompt}\n答：{response}"
+    return {
+        "prompt": f"问：{sample.get('prompt', '').strip()}",
+        "completion": f"答：{sample.get('response', '').strip()}",
+    }
 
 
 def download(dataset: str = DEFAULT_DATASET, revision: str = DEFAULT_REVISION) -> None:
@@ -43,7 +44,7 @@ def load_train_dataset(
     revision: str = DEFAULT_REVISION,
     max_samples: int | None = None,
 ):
-    """加载并模板化训练集（保留 source 列供分模块分析）。
+    """加载并拆分为 prompt/completion 训练集（保留 source 列供分模块分析）。
 
     企业私有数据接入后：改为从 os.environ.get("DATA_ROOT", "./data") 读取本地文件，
     并在此处统一脱敏检查。
@@ -51,8 +52,8 @@ def load_train_dataset(
     ds = load_dataset(dataset, split="train", revision=revision)
     if max_samples is not None:
         ds = ds.select(range(min(max_samples, len(ds))))
-    keep = [c for c in ds.column_names if c != "prompt" and c != "response"]
-    return ds.map(lambda s: {"text": format_sample(s)}, remove_columns=keep)
+    # 去掉原始 response（已并入 completion），保留 source 列
+    return ds.map(lambda s: format_sample(s), remove_columns=["response"])
 
 
 def main() -> None:
