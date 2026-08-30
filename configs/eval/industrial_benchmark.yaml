@@ -1,0 +1,9 @@
+# 评测配置（骨架）
+# 用法：bash scripts/eval.sh configs/eval/industrial_benchmark.yaml
+
+name: industrial-benchmark-v1
+model_name_or_path: Qwen/Qwen2.5-7B
+adapter_path: output/qwen2.5-7b-industrial-sft   # 训练输出的 LoRA adapter
+
+# TODO(M2): 企业方确认指标口径后补充：
+# eval_dataset, metric (accuracy/f1/...), batch_size, max_new_tokens

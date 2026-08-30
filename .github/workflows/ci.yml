@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      # 冒烟测试刻意不装 torch（CI 只验证代码可运行性，完整训练在双方机器上跑）
+      - name: Install lightweight deps
+        run: |
+          pip install --quiet ruff pytest pyyaml
+
+      - name: Lint
+        run: ruff check src/ tests/
+
+      - name: Smoke tests
+        run: python -m pytest tests/ -q

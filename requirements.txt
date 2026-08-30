@@ -1,0 +1,11 @@
+# 顶层依赖（用于 pip install -e ".[dev]"）
+# 完整锁定版本见 requirements.lock（pip freeze 生成，双方必须一致）
+torch>=2.2
+transformers>=4.44
+trl>=0.10.0
+peft>=0.12.0
+datasets>=2.20.0
+accelerate>=0.33.0
+bitsandbytes>=0.43.0
+wandb>=0.17.0
+pyyaml>=6.0

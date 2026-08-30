@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "industrial-ft"
+version = "0.1.0"
+description = "Industrial dataset fine-tuning of 7B LLMs (TRL + LoRA/QLoRA) — joint university × industry project"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2",
+    "transformers>=4.44",
+    "trl>=0.10.0",
+    "peft>=0.12.0",
+    "datasets>=2.20.0",
+    "accelerate>=0.33.0",
+    "bitsandbytes>=0.43.0",
+    "wandb>=0.17.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

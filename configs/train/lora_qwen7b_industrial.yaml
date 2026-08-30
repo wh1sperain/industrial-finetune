@@ -1,0 +1,39 @@
+# SFT LoRA 训练配置（Qwen2.5-7B + 公开工业数据集占位）
+# 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml
+# 说明：实验参数一律在此修改，代码不硬编码。
+
+### 模型
+model_name_or_path: Qwen/Qwen2.5-7B
+trust_remote_code: true
+
+### 数据（TODO M1: 替换为实际公开工业数据集）
+dataset: gsm8k              # HF 数据集名
+dataset_revision: main      # 固定 revision，保证可复现
+max_train_samples: null     # 调试时可设小值（如 512），正式训练留 null
+max_seq_length: 1024
+
+### LoRA（QLoRA: 打开 qlora: true 启用 4bit 量化，7B 单卡 24GB 可跑）
+qlora: false
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+### 训练
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 8
+learning_rate: 2.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+num_train_epochs: 3.0
+bf16: true
+gradient_checkpointing: true
+logging_steps: 10
+save_steps: 500
+save_total_limit: 2
+seed: 42
+
+### 输出与追踪
+output_dir: output/qwen2.5-7b-industrial-sft
+report_to: wandb            # 无 wandb 环境可改 none
+run_name: qwen2.5-7b-industrial-sft

@@ -1,0 +1,45 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- 密钥与环境变量（.env.example 是模板，.env 永不入库）----
+.env
+.env.local
+*.pem
+*.key
+
+# ---- 数据与权重（一律不入库，见 docs/数据管理.md）----
+data/raw/
+data/processed/
+output/
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+*.onnx
+
+# ---- 实验日志 ----
+wandb/
+runs/
+logs/
+*.log
+
+# ---- 系统与 IDE ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
