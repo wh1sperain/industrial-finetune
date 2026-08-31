@@ -13,5 +13,9 @@ probe_dataset: acnul/Mining-Engineering-Probe    # 50 条，调参期快速验�
 max_new_tokens: 256
 batch_size: 8
 
+# L2 语义相似度（可选，评测时加 --semantic 启用）
+# 本地 embedding 模型路径（ModelScope 下载，见 docs/训练评估操作手册.md）
+semantic_model_path: ""
+
 # TODO(M2): 企业方确认指标口径后补充：
 # metric (accuracy/f1/...)

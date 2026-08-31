@@ -1,4 +1,5 @@
-"""训练模块：TRL SFT 入口（LoRA/QLoRA）。"""
-from industrial_ft.train.sft import main as sft_main
+"""训练模块：sft（TRL SFT 入口）。
 
-__all__ = ["sft_main"]
+注意：不在 __init__.py 提前 import 子模块——sft 依赖 torch/trl，
+提前导入会产生 runpy RuntimeWarning 并拖慢无关环境。
+"""

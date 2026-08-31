@@ -88,6 +88,32 @@ def compute_metrics(predictions: list[str], references: list[str], sources: list
     return metrics
 
 
+def compute_semantic_scores(
+    predictions: list[str], references: list[str], model, batch_size: int = 64
+) -> list[float]:
+    """L2 语义相似度：embedding cosine（需要 sentence-transformers 模型实例）。
+
+    model: SentenceTransformer 实例（--semantic 时由 run_eval.py 加载）。
+    返回每样本的余弦相似度（pred vs reference）。
+    函数内 import，保持本模块顶层无第三方依赖（CI 可测）。
+    """
+    texts = []
+    for p, r in zip(predictions, references):
+        texts.extend([p, r])
+    embs = model.encode(
+        texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
+    )
+    return [float(embs[i] @ embs[i + 1]) for i in range(0, len(embs), 2)]
+
+
+def summarize_semantic(sims: list[float], threshold: float = 0.6) -> dict:
+    """语义相似度的汇总统计：均值 + 达标率（sim >= threshold）。"""
+    n = len(sims)
+    if n == 0:
+        return {"mean": 0.0, "pass_rate": 0.0}
+    return {"mean": sum(sims) / n, "pass_rate": sum(1 for s in sims if s >= threshold) / n}
+
+
 def build_review_markdown(rows: list[dict], per_module_n: int = 3, title: str = "评测") -> str:
     """L3：按模块抽样生成人工抽查清单（markdown 表格，判定栏留空供人工填写）。
 

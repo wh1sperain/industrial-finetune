@@ -31,7 +31,12 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from industrial_ft.utils.config import load_config
-from industrial_ft.utils.metrics import build_review_markdown, compute_metrics
+from industrial_ft.utils.metrics import (
+    build_review_markdown,
+    compute_metrics,
+    compute_semantic_scores,
+    summarize_semantic,
+)
 
 
 def generate_batch(model, tokenizer, prompts: list[str], max_new_tokens: int) -> list[str]:
@@ -76,6 +81,11 @@ def main() -> None:
         type=int,
         default=3,
         help="L3 人工抽查：每模块抽取条数（默认 3，0 关闭）",
+    )
+    parser.add_argument(
+        "--semantic",
+        action="store_true",
+        help="启用 L2 语义相似度指标（需 sentence-transformers + config 的 semantic_model_path 本地模型）",
     )
     args = parser.parse_args()
 
@@ -136,13 +146,38 @@ def main() -> None:
     print(f"非空率   : {metrics['non_empty']:.2%}")
     print(f"EM       : {metrics['em']:.2%}   （L0 诊断用，长文任务参考性低）")
     print(f"contain  : {metrics['contain']:.2%}   （L0 诊断用，长文任务参考性低）")
-    print(f"术语覆盖率: {metrics['term_coverage']:.2%}   （L1 主指标）")
+    print(f"术语覆盖率: {metrics['term_coverage']:.2%}   （L1）")
     print("\n--- 分模块 ---")
     for src, m in metrics["per_module"].items():
         print(
             f"{src:<15} n={m['total']:<4} EM={m['em']:.2%}  contain={m['contain']:.2%}  "
             f"术语覆盖率={m['term_coverage']:.2%}"
         )
+
+    # 4b. L2 语义相似度（可选 --semantic）
+    if args.semantic:
+        from collections import defaultdict as _dd
+
+        from sentence_transformers import SentenceTransformer
+
+        sem_path = cfg.get("semantic_model_path", "")
+        if not sem_path:
+            raise SystemExit("[eval] --semantic 需要 config 的 semantic_model_path（本地 embedding 模型路径）")
+        print(f"\n[L2] 加载语义模型: {sem_path} ...")
+        sem_model = SentenceTransformer(sem_path, device="cuda" if torch.cuda.is_available() else "cpu")
+        sims = compute_semantic_scores(predictions, references, sem_model)
+        sem_summary = summarize_semantic(sims)
+        per_module_sims = _dd(list)
+        for src, s in zip(sources, sims):
+            per_module_sims[src].append(s)
+
+        print("\n===== L2 语义相似度 =====")
+        print(f"均值    : {sem_summary['mean']:.3f}")
+        print(f"达标率  : {sem_summary['pass_rate']:.2%}   （sim >= 0.6）")
+        print("--- 分模块 ---")
+        for src in sorted(per_module_sims):
+            m_sim = summarize_semantic(per_module_sims[src])
+            print(f"{src:<15} n={len(per_module_sims[src]):<4} 均值={m_sim['mean']:.3f}  达标率={m_sim['pass_rate']:.2%}")
 
     # 5. 保存产物
     out_dir = Path(cfg.get("output_dir", adapter_path))
