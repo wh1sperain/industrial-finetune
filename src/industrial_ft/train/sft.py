@@ -1,14 +1,10 @@
-"""SFT 训练入口：TRL SFTTrainer + LoRA（TRL 1.x API）。
+"""SFT 训练入口：TRL SFTTrainer + LoRA 
 
 用法：
     python -m industrial_ft.train.sft --experiment <配置名>
     # 断点续训：--resume
     # 代码级实验入口：bash scripts/experiments/industrial_ft/train.sh <配置名> [--resume]
 
-TRL 1.x API 差异（相对 0.10~0.17）：
-- warmup_ratio → warmup_steps
-- max_seq_length → max_length
-- SFTTrainer(tokenizer=...) → processing_class
 """
 from __future__ import annotations
 

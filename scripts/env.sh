@@ -6,8 +6,6 @@
 # 处理项：HF Xet 401（HF_HUB_DISABLE_XET=1）、缓存指向数据盘、
 #         .env 密钥加载、torch/trl 版本与模型路径自检
 # ============================================================================
-# 是否被 source（source 时不设置 set -euo pipefail——
-# 否则 set -e 会污染调用者 shell，导致任何失败命令/Ctrl+C 直接退出终端）
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   SOURCED=0
   set -euo pipefail

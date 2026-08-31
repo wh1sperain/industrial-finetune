@@ -1,6 +1,6 @@
 # industrial-finetune
 
-工业数据集模型微调（TRL + LoRA，Qwen2.5-7B）。
+工业数据集模型微调
 
 ## 快速开始
 
@@ -16,12 +16,12 @@ bash scripts/experiments/industrial_ft/train.sh mining_eng_lora        # 训练
 bash scripts/experiments/industrial_ft/eval.sh mining_eng_lora --probe # 评测（Probe）
 ```
 
-## 模型与数据（自行准备）
+## 模型与数据
 
-仓库不负责下载。模型和数据集由用户自行准备，在配置中指定位置：
+在配置中指定位置：
 
-- **模型**：下载到本地后，在 `configs/models.yaml` 的 `local_paths` 填入 `模型ID: 本地路径`（未填则按模型 ID 在线加载）
-- **数据集**：在配置 `configs/experiments/industrial_ft/<配置名>.yaml` 的 `dataset` 字段填 HF 数据集 ID 或本地目录路径
+- **模型**：在 `configs/models.yaml` 的 `local_paths` 填入 `模型ID: 本地路径`（未填则按模型 ID 在线加载）
+- **数据集**：在配置 `configs/experiments/<实验名>/<配置名>.yaml` 的 `dataset` 字段填 HF 数据集 ID 或本地目录路径
 
 ## 目录结构
 
@@ -29,14 +29,14 @@ bash scripts/experiments/industrial_ft/eval.sh mining_eng_lora --probe # 评测�
 ├── configs/
 │   ├── experiments/
 │   │   └── industrial_ft/  # 代码级实验 industrial_ft 的配置（一个配置一个 yaml）
-│   └── models.yaml         # 模型本地路径映射（用户自填，留空则在线加载）
-├── src/industrial_ft/      # 代码级实验 industrial_ft 的代码（data / train / eval / utils）
+│   └── models.yaml         # 模型本地路径映射
+├── src/industrial_ft/      # 实验代码（data / train / eval / utils）
 ├── scripts/
 │   ├── common.sh           # 公共环境/路径/Python 解析
-│   ├── run.sh              # 兼容入口（即将废弃）
+│   ├── run.sh              # 兼容入口
 │   └── experiments/
-│       └── industrial_ft/  # 代码级实验入口：train.sh / eval.sh
-├── tests/                  # 冒烟测试
+│       └── industrial_ft/  # 实验入口：train.sh / eval.sh
+├── tests/                  # 测试
 └── .github/                # CI（待定）
 ```
 
