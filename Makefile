@@ -1,16 +1,13 @@
-.PHONY: setup download train eval test lint
+.PHONY: setup train eval test lint
 
 setup:
 	python -m pip install -e ".[dev]"
 
-download:
-	bash scripts/download_data.sh
-
 train:
-	bash scripts/train.sh
+	bash scripts/experiments/industrial_ft/train.sh mining_eng_lora
 
 eval:
-	bash scripts/eval.sh
+	bash scripts/experiments/industrial_ft/eval.sh mining_eng_lora
 
 test:
 	python -m pytest tests/ -q

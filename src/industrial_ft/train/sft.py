@@ -1,8 +1,9 @@
 """SFT 训练入口：TRL SFTTrainer + LoRA（TRL 1.x API）。
 
 用法：
-    python -m industrial_ft.train.sft --config configs/train/lora_qwen7b_industrial.yaml
+    python -m industrial_ft.train.sft --experiment <配置名>
     # 断点续训：--resume
+    # 代码级实验入口：bash scripts/experiments/industrial_ft/train.sh <配置名> [--resume]
 
 TRL 1.x API 差异（相对 0.10~0.17）：
 - warmup_ratio → warmup_steps
@@ -18,10 +19,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
 
 from industrial_ft.data.loader import load_train_dataset
-from industrial_ft.utils.config import load_config
+from industrial_ft.utils.config import load_train_config
 from industrial_ft.utils.seed import set_seed
-
-DEFAULT_DATASET = "acnul/Mining-Engineering-SFT"
 
 
 def build_lora_config(cfg: dict) -> LoraConfig:
@@ -66,7 +65,7 @@ def build_model_and_tokenizer(cfg: dict):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SFT with TRL (LoRA/QLoRA)")
-    parser.add_argument("--config", required=True, help="path to yaml config under configs/train/")
+    parser.add_argument("--experiment", required=True, help="configs/experiments/industrial_ft/ 下的配置名")
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -74,12 +73,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = load_train_config(args.experiment)
     set_seed(cfg.get("seed", 42))
 
     model, tokenizer = build_model_and_tokenizer(cfg)
     train_dataset = load_train_dataset(
-        dataset=cfg.get("dataset", DEFAULT_DATASET),
+        dataset=cfg.get("dataset", "acnul/Mining-Engineering-SFT"),
         revision=cfg.get("dataset_revision", "main"),
         max_samples=cfg.get("max_train_samples"),
     )

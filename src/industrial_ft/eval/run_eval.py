@@ -1,14 +1,9 @@
 """评测入口：加载 LoRA adapter，在官方评测集上生成并计算指标。
 
-用法：
-    # Probe（50 条）：
-    python -m industrial_ft.eval.run_eval --config configs/eval/industrial_benchmark.yaml --probe
-    # 正式 Eval（301 条）：
-    python -m industrial_ft.eval.run_eval --config configs/eval/industrial_benchmark.yaml
-    # 基座对照（不加载 adapter）：
-    python -m industrial_ft.eval.run_eval --config configs/eval/industrial_benchmark.yaml --baseline
-    # L2 语义指标（--semantic，需 config 的 semantic_model_path 本地 embedding 模型）
-    # L3 人工抽查（--review N，默认每模块 3 条，0 关闭）
+用法（代码级实验入口）：
+    bash scripts/experiments/industrial_ft/eval.sh <配置名> [--probe] [--baseline] [--semantic] [--review N]
+    # 等价：
+    python -m industrial_ft.eval.run_eval --experiment <配置名> [--probe] [--baseline] ...
 
 产物：eval_predictions_*.jsonl（全量预测）+ eval_review_*.md（抽查清单）
 """
@@ -23,7 +18,7 @@ from datasets import concatenate_datasets, load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from industrial_ft.utils.config import load_config
+from industrial_ft.utils.config import load_eval_config
 from industrial_ft.utils.metrics import (
     build_review_markdown,
     compute_metrics,
@@ -33,13 +28,15 @@ from industrial_ft.utils.metrics import (
 )
 
 
-def generate_batch(model, tokenizer, prompts: list[str], max_new_tokens: int) -> list[str]:
+def generate_batch(
+    model, tokenizer, prompts: list[str], max_new_tokens: int, max_length: int
+) -> list[str]:
     inputs = tokenizer(
         prompts,
         return_tensors="pt",
         padding=True,
         truncation=True,
-        max_length=2048,
+        max_length=max_length,
     ).to(model.device)
     with torch.no_grad():
         outputs = model.generate(
@@ -58,7 +55,7 @@ def generate_batch(model, tokenizer, prompts: list[str], max_new_tokens: int) ->
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a fine-tuned model (TRL 1.x project)")
-    parser.add_argument("--config", required=True, help="path to yaml config under configs/eval/")
+    parser.add_argument("--experiment", required=True, help="configs/experiments/industrial_ft/ 下的配置名")
     parser.add_argument(
         "--probe",
         action="store_true",
@@ -82,13 +79,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = load_eval_config(args.experiment)
     model_name = cfg["model_name_or_path"]
     adapter_path = cfg.get("adapter_path") or cfg["adapter_dir"]
     eval_dataset = cfg["eval_dataset"]
     eval_revision = cfg.get("eval_dataset_revision", "main")
     max_new_tokens = cfg.get("max_new_tokens", 256)
     batch_size = cfg.get("batch_size", 8)
+    max_length = cfg.get("max_length", 2048)
 
     if args.probe:
         eval_dataset = cfg["probe_dataset"]
@@ -96,13 +94,13 @@ def main() -> None:
     else:
         print(f"[eval] 完整 Eval 模式: {eval_dataset}@{eval_revision}")
 
-    # 1. 模型（bf16 + SDPA；Blackwell 不兼容 flash_attention_2）
+    # 1. 模型（dtype 由实验配置 bf16 开关决定；SDPA；Blackwell 不兼容 flash_attention_2）
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16 if cfg.get("bf16", True) else torch.float32,
         attn_implementation="sdpa",
         device_map="auto",
     )
@@ -126,7 +124,7 @@ def main() -> None:
     # 3. 分批生成
     predictions: list[str] = []
     for i in range(0, len(prompts), batch_size):
-        preds = generate_batch(model, tokenizer, prompts[i : i + batch_size], max_new_tokens)
+        preds = generate_batch(model, tokenizer, prompts[i : i + batch_size], max_new_tokens, max_length)
         predictions.extend(preds)
         print(f"[eval] {min(i + batch_size, len(prompts))}/{len(prompts)}")
 

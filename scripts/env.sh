@@ -98,29 +98,21 @@ except ImportError:
 sys.exit(0 if ok else 1)
 EOF
 
-# 4.2 模型路径（从 configs/models.yaml 单一事实源读取，检查本地存在性）
-MODEL_PATH="$(grep -E '^model_path:' "$REPO_DIR/configs/models.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || true)"
-BASE_MODEL="$(grep -E '^base_model:' "$REPO_DIR/configs/models.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || true)"
-if [[ -n "$MODEL_PATH" && -d "$MODEL_PATH" ]]; then
-  echo "[✓] 模型本地路径存在: $MODEL_PATH"
-elif [[ -n "$MODEL_PATH" ]]; then
-  echo "[✗] configs/models.yaml 的 model_path 不存在: $MODEL_PATH"
-  echo "     → 执行 bash scripts/download_model.sh 重新下载/修正"
+# 4.2 模型路径（configs/models.yaml 的 local_paths 映射，用户自填，检查本地存在性）
+LOCAL_PATHS=$(grep -A20 '^local_paths:' "$REPO_DIR/configs/models.yaml" 2>/dev/null | grep -E '^\s+\S+:\s*\S+' | sed 's/^\s*//' || true)
+if [[ -n "$LOCAL_PATHS" ]]; then
+  echo "[✓] 模型本地映射:"
+  echo "$LOCAL_PATHS" | sed 's/^/    /'
+  MISSING=$(echo "$LOCAL_PATHS" | awk -F': ' '{if ($2 != "" && system("test -d \"" $2 "\"") != 0) print "     [✗] 路径不存在: " $2}')
+  if [[ -n "$MISSING" ]]; then
+    echo "$MISSING"
+    echo "     → 检查 configs/models.yaml 中该路径是否正确"
+  fi
 else
-  echo "[!] model_path 为空，将使用在线模型 ID（$BASE_MODEL）"
-  echo "     → 建议先执行 bash scripts/download_model.sh 下载到本地"
+  echo "[!] configs/models.yaml 无 local_paths 映射（模型将在线加载，或自行填写本地路径）"
 fi
 
-# 4.3 评测数据集缓存
-for ds in "acnul___mining-engineering-sft" "acnul___mining-engineering-eval" "acnul___mining-engineering-probe"; do
-  if [[ -d "$HF_HOME/datasets/$ds" || -d "$HF_HOME/hub/datasets--$ds" ]]; then
-    echo "[✓] 数据集缓存: $ds"
-  else
-    echo "[!] 数据集未缓存: $ds（可执行 bash scripts/download_data.sh / eval 前预下载）"
-  fi
-done
-
-# 4.4 wandb 密钥
+# 4.3 wandb 密钥
 if [[ -z "$WANDB_API_KEY" ]]; then
   echo "[!] WANDB_API_KEY 为空：wandb 上报会失败；可填 .env 或训练时 report_to 改 none"
 else
