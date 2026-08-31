@@ -1,14 +1,10 @@
-"""统一配置解析：模型命名与路径的单一事实源。
+"""统一配置解析。
 
-模型信息只维护在 `configs/models.yaml` 一处：
-    base_model  : 模型 ID（HF/ModelScope，在线兜底）
-    model_path  : 本地路径（download_model.sh 自动写入；目录存在则优先使用）
-    adapter_dir : LoRA 输出目录（训练保存 / 评测加载，共用）
-    run_name    : 实验名（wandb 共用）
+模型相关信息只维护在 `configs/models.yaml`：
+- model_path 为本地路径（download_model.sh 写入），目录存在时优先使用，否则回退 base_model
+- adapter_dir / run_name 由训练与评测共用
 
-所有入口（train / eval / 脚本）通过 `load_config()` 获取合并后的配置：
-- 自动注入 model_name_or_path / output_dir / run_name / trust_remote_code
-- 模型路径解析规则：本地目录存在 → 用本地；否则 → 在线 ID（不再需要到处改路径）
+`load_config()` 加载 train/eval 配置并合并以上字段。
 """
 from __future__ import annotations
 
@@ -27,12 +23,10 @@ def load_yaml(path: Path | str) -> dict:
 
 
 def load_models_config() -> dict:
-    """读取模型单一配置源（configs/models.yaml）。"""
     return load_yaml(MODELS_CONFIG)
 
 
 def resolve_model_name(models: dict) -> str:
-    """解析模型路径：本地目录存在 → 用本地路径；否则 → 在线 ID。"""
     model_path = (models.get("model_path") or "").strip()
     if model_path and os.path.isdir(model_path):
         return model_path
@@ -40,11 +34,7 @@ def resolve_model_name(models: dict) -> str:
 
 
 def load_config(path: str | Path) -> dict:
-    """加载 train/eval 配置，并合并模型单一配置源。
-
-    注入字段：model_name_or_path（已解析）、model_path、adapter_dir、
-    output_dir（= adapter_dir，若该配置未自定义）、run_name、trust_remote_code。
-    """
+    """加载 train/eval 配置并注入模型字段（model_name_or_path / output_dir / run_name / trust_remote_code）。"""
     cfg = load_yaml(path)
     models = load_models_config()
     cfg["model_name_or_path"] = resolve_model_name(models)

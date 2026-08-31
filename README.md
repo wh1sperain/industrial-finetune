@@ -1,57 +1,36 @@
-# Industrial-Finetune
+# industrial-finetune
 
-**工业数据集模型微调**仓库（私有）。
+工业数据集模型微调（TRL + LoRA，Qwen2.5-7B）。
 
-- 框架：TRL (HuggingFace) ｜ 方法：LoRA / QLoRA ｜ 基座：Qwen2.5-7B（可替换）
-- 阶段：M0 骨架 → M1 用公开工业数据集跑通全流程
-
-## 快速开始（5 分钟）
+## 快速开始
 
 ```bash
-# 1. 克隆并安装
 git clone <repo-url> && cd industrial-finetune
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 2. 配置密钥
-cp .env.example .env    # 填入 HF_TOKEN / WANDB_API_KEY
+cp .env.example .env          # 填写密钥（HF_TOKEN / WANDB_API_KEY 按需）
+source scripts/env.sh         # 环境变量与自检
 
-# 3. 拉取公开数据集（当前为 GSM8K 占位，替换为实际工业数据集）
-make download
+bash scripts/download_model.sh   # 下载模型（ModelScope，写入 configs/models.yaml）
+bash scripts/download_data.sh    # 下载数据集（sft/cot/eval/probe）
 
-# 4. LoRA 微调（单卡 24GB 可跑 7B QLoRA）
-make train
-
-# 5. 评测
-make eval
+bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml   # 训练
+bash scripts/eval.sh --probe                                     # 评测（Probe）
 ```
-
-> Windows 用户：`make` 命令请在 Git Bash 中执行；或直接运行 `bash scripts/train.sh`。
 
 ## 目录结构
 
 ```
-├── .github/            # CI + Issue/PR 模板
-├── src/industrial_ft/  # 包化代码（data 数据加载 / train 训练 / eval 评测 / utils 工具）
-├── configs/            # 训练与评测配置（yaml，参数不进代码）
-├── scripts/            # 统一入口脚本（train / eval / download）
-├── tests/              # 冒烟测试（CI 里跑的轻量校验）
-├── data/               # 只放数据清单说明，数据本身外部化
-├── docs/               # 环境搭建 / 数据管理 / 实验规范 / 协作约定
+├── configs/            # 配置（models.yaml 为模型路径/实验名单一来源，train/ eval/ 为实验配置）
+├── src/industrial_ft/  # 代码（data 数据加载 / train 训练 / eval 评测 / utils 工具）
+├── scripts/            # 入口脚本（download_model / download_data / train / eval / env）
+├── tests/              # 冒烟测试
+├── data/               # 数据集清单（数据本身不入库）
+├── .github/            # CI
 └── Makefile            # setup / download / train / eval / test / lint
 ```
 
-## 文档入口
+## 实验扩展方式
 
-| 文档 | 内容 |
-|---|---|
-| `docs/环境搭建.md` | 依赖、CUDA、硬件要求 |
-| `docs/数据管理.md` | 数据来源、版本、私有数据接入规范 |
-| `docs/实验规范.md` | 实验命名、wandb、结果沉淀 |
-| `docs/协作约定.md` | 分支、PR 评审、分工 |
-
-## 核心约定（详见 CONTRIBUTING.md）
-
-- `main` 受保护，所有改动走 **PR + 至少 1 人交叉评审**（高校方审方法，企业方审数据口径）
-- 数据、权重、日志 **不入库**；模型 LoRA adapter 上传 HF Hub / 企业网盘
-- 一切训练参数走 `configs/`，代码里不硬编码
+新实验 = 新增一个 `configs/train/*.yaml`（数据/超参/输出目录均可覆盖），训练与评测入口不变。

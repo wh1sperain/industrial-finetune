@@ -1,29 +1,26 @@
-# SFT LoRA 训练配置（Qwen2.5-7B + Mining-Engineering 矿建工程数据集）
-# 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml
-# 说明：
-#   - 实验参数一律在此修改，代码不硬编码
-#   - 模型名/路径/输出目录/实验名统一在 configs/models.yaml（唯一事实源，此处不再重复）
-#   - 完整方案见 docs/训练方案.md
+# SFT LoRA 训练配置（Qwen2.5-7B + Mining-Engineering）
+# 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml [--resume]
+# 模型路径/输出目录/实验名统一在 configs/models.yaml
 
-### 数据（已定案 Mining-Engineering 矿建工程系列，中文，MIT，5,287 条）
-dataset: acnul/Mining-Engineering-SFT   # HF 数据集名（字段：prompt/response/source）
-dataset_revision: main      # 固定 revision，保证可复现
+### 数据
+dataset: acnul/Mining-Engineering-SFT   # 字段：prompt/response/source
+dataset_revision: main
 max_train_samples: null     # 冒烟调试设 512；正式训练留 null（全量 5,287 条）
-max_length: 2048            # TRL 1.x 字段名（旧版 max_seq_length）；矿建问答+CoT 较长，按 P95 复核
+max_length: 2048            # TRL 1.x 字段名（旧版 max_seq_length）
 
-### LoRA / QLoRA（见 docs/训练方案.md §4）
-qlora: false                # true = 4bit NF4 量化（单卡 24GB 不够跑 LoRA 时启用）
+### LoRA / QLoRA
+qlora: false                # true = 4bit NF4 量化
 lora_r: 8
 lora_alpha: 16
 lora_dropout: 0.05
 lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
-### 训练（见 docs/训练方案.md §5，5090 优化版）
-per_device_train_batch_size: 4      # 5090 32GB 显存充裕；小卡改回 2
+### 训练（5090 优化）
+per_device_train_batch_size: 4      # 32GB 显存；小卡改回 2
 gradient_accumulation_steps: 4      # 全局 batch = 4 × 4 = 16
 learning_rate: 2.0e-4
 lr_scheduler_type: cosine
-warmup_steps: 30            # TRL 1.x 字段名（旧版 warmup_ratio）；30 ≈ 3%（全局 batch 16，3 epochs ≈ 991 steps）
+warmup_steps: 30            # TRL 1.x 字段名（旧版 warmup_ratio）
 num_train_epochs: 3.0
 weight_decay: 0.01
 bf16: true
@@ -33,15 +30,11 @@ save_steps: 500
 save_total_limit: 2
 seed: 42
 
-### 5090 加速开关（docs/训练方案.md §5.2，已启用）
-torch_compile: true             # PyTorch 2.7+，首次编译预热 1-2 分钟，7B 提速 10~30%
-attn_implementation: sdpa       # 默认 sdpa；严禁 flash_attention_2（sm_120 不支持）
-optim: adamw_torch_fused        # 融合优化器，省显存 + 提速
-dataloader_num_workers: 4       # 数据加载不拖 GPU
-
-### 断点续训（可选）
-# 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml --resume
+### 加速开关
+torch_compile: true             # PyTorch 2.7+，首次运行编译预热 1-2 分钟
+attn_implementation: sdpa       # Blackwell (sm_120) 不兼容 flash_attention_2
+optim: adamw_torch_fused
+dataloader_num_workers: 4
 
 ### 输出与追踪
 report_to: wandb            # 无 wandb 环境可改 none
-# output_dir / run_name 统一在 configs/models.yaml（adapter_dir / run_name）

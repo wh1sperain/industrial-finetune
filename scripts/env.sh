@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# ============================================================================
-# 环境初始化脚本：集中设置所有环境变量 + 环境自检（历史踩坑一键处理）
-#
+# 环境初始化：设置数据盘缓存/网络/密钥环境变量 + 环境自检
 # 用法：
-#   source scripts/env.sh        # 当前会话生效（推荐：训练/评测前执行一次）
-#   bash scripts/env.sh          # 只打印环境检查报告（不改变当前会话）
-#   echo 'source ~/autodl-tmp/industrial-finetune/scripts/env.sh' >> ~/.bashrc
-#                                # 登录自动生效（可选）
-#
-# 解决的历史问题：
-#   1. HF Xet 下载协议 401 bug        → HF_HUB_DISABLE_XET=1
-#   2. 国内服务器直连 HF 慢/卡死       → HF_ENDPOINT 镜像（可开关）
-#   3. 模型/数据集占满系统盘           → MODELSCOPE_CACHE / HF_HOME 指向数据盘
-#   4. gated 模型 401 Unauthorized    → HF_TOKEN（从 .env 加载；走 ModelScope 后可选）
-#   5. wandb 密钥不生效（代码不读.env）→ WANDB_API_KEY（从 .env 加载并 export）
-#   6. torch 被装成 CPU 版            → 自检 torch>=2.7 + cuda.is_available()
-#   7. TRL 版本 API 不兼容            → 自检 1.12 <= trl < 2.0
-#   8. 模型路径被 git pull 覆盖回 HF ID → 自检 config 中 model_name_or_path 存在
+#   source scripts/env.sh        # 当前会话生效
+#   bash scripts/env.sh          # 只打印检查报告
+# 处理项：HF Xet 401（HF_HUB_DISABLE_XET=1）、缓存指向数据盘、
+#         .env 密钥加载、torch/trl 版本与模型路径自检
 # ============================================================================
 # 是否被 source（source 时不设置 set -euo pipefail——
 # 否则 set -e 会污染调用者 shell，导致任何失败命令/Ctrl+C 直接退出终端）

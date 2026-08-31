@@ -1,10 +1,9 @@
-"""评测指标模块（纯逻辑，无 torch 依赖，CI 可测）。
+"""评测指标（纯逻辑，无 torch 依赖，CI 可测）。
 
-分层指标：
-- L0 链路检查：非空率 / EM / contain（长文生成任务仅诊断用）
-- L1 术语覆盖率：从标准答案提取关键术语（引号术语/书名号规范/英文缩写），
-  统计模型输出包含比例——长文问答的主指标，可解释、零依赖
-- L3 人工抽查清单：按模块抽样生成 markdown，双方人工判定
+- L0：非空率 / EM / contain（长文生成任务仅诊断用）
+- L1：术语覆盖率——从标准答案提取引号术语/书名号规范/英文缩写，统计输出包含比例
+- L2：语义相似度——整文 cosine（bge），以及分段要点覆盖率（长文场景主用）
+- L3：人工抽查清单（markdown）
 """
 from __future__ import annotations
 
@@ -13,19 +12,16 @@ from collections import defaultdict
 
 
 def normalize(text: str) -> str:
-    """规范化：去空白与标点，用于严格匹配（L0 诊断用）。"""
+    """去空白与标点（L0 用）。"""
     text = re.sub(r"\s+", "", text or "")
     text = re.sub(r"[\s，。！？、；：\"\"''（）()《》【】—-]", "", text)
     return text
 
 
 def extract_key_terms(reference: str) -> list[str]:
-    """从标准答案提取关键术语（L1 指标）。
+    """从标准答案提取关键术语（L1）。
 
-    三种来源（契合 Mining-Engineering 数据风格，零外部依赖）：
-    1. 引号内术语：数据集用中文引号标注专业术语，如"凿井"、"欠挖"
-    2. 书名号内规范名：如《GBT 50562-2019 煤炭矿井工程基本术语标准》
-    3. 英文缩写/字母数字术语：如 CAPEX、OPEX、GBT 50562
+    来源：引号内术语、"《》"内规范名、英文缩写/字母数字术语。
     """
     terms: set[str] = set()
     terms.update(re.findall(r"[“\"]([^”\"\n]{1,24})[”\"]", reference))
@@ -40,7 +36,7 @@ def extract_key_terms(reference: str) -> list[str]:
 
 
 def compute_metrics(predictions: list[str], references: list[str], sources: list[str]) -> dict:
-    """计算 L0（非空/EM/contain）+ L1（术语覆盖率）及六模块分项。"""
+    """L0 + L1 及分模块统计。"""
     total = len(references)
     non_empty = sum(1 for p in predictions if p.strip())
     em = contain = 0
@@ -52,7 +48,6 @@ def compute_metrics(predictions: list[str], references: list[str], sources: list
             em += 1
         if len(r_norm) >= 4 and r_norm in p_norm:
             contain += 1
-        # L1：术语覆盖率（大小写不敏感）
         pred_lower = pred.lower()
         terms = extract_key_terms(ref)
         hits = sum(1 for t in terms if t.lower() in pred_lower)
@@ -91,11 +86,9 @@ def compute_metrics(predictions: list[str], references: list[str], sources: list
 def compute_semantic_scores(
     predictions: list[str], references: list[str], model, batch_size: int = 64
 ) -> list[float]:
-    """L2 语义相似度：embedding cosine（需要 sentence-transformers 模型实例）。
+    """L2 整文语义相似度（pred vs reference 的 embedding cosine）。
 
-    model: SentenceTransformer 实例（--semantic 时由 run_eval.py 加载）。
-    返回每样本的余弦相似度（pred vs reference）。
-    函数内 import，保持本模块顶层无第三方依赖（CI 可测）。
+    model: SentenceTransformer 实例。
     """
     texts = []
     for p, r in zip(predictions, references):
@@ -107,18 +100,60 @@ def compute_semantic_scores(
 
 
 def summarize_semantic(sims: list[float], threshold: float = 0.6) -> dict:
-    """语义相似度的汇总统计：均值 + 达标率（sim >= threshold）。"""
     n = len(sims)
     if n == 0:
         return {"mean": 0.0, "pass_rate": 0.0}
     return {"mean": sum(sims) / n, "pass_rate": sum(1 for s in sims if s >= threshold) / n}
 
 
-def build_review_markdown(rows: list[dict], per_module_n: int = 3, title: str = "评测") -> str:
-    """L3：按模块抽样生成人工抽查清单（markdown 表格，判定栏留空供人工填写）。
+def split_sentences(text: str, min_len: int = 8) -> list[str]:
+    parts = re.split(r"[。！？；\n]", text or "")
+    return [p.strip() for p in parts if len(p.strip()) >= min_len]
 
-    rows: [{"prompt", "reference", "prediction", "source"}, ...]
-    """
+
+def compute_segment_coverage(
+    predictions: list[str],
+    references: list[str],
+    model,
+    threshold: float = 0.65,
+    batch_size: int = 128,
+) -> list[float]:
+    """L2 分段要点覆盖率：参考答案切句，逐句与输出算相似度，sim >= threshold 记命中，
+    覆盖率为命中句数/总句数。长文问答主用（整文余弦会被平均池化虚高）。"""
+    all_texts: list[str] = []
+    spans: list[tuple[int, int, int]] = []
+    for pred, ref in zip(predictions, references):
+        sents = split_sentences(ref)
+        if not sents:
+            spans.append((len(all_texts), -1, -1))
+            all_texts.append(pred)
+            continue
+        pred_idx = len(all_texts)
+        all_texts.append(pred)
+        sent_start = len(all_texts)
+        all_texts.extend(sents)
+        spans.append((pred_idx, sent_start, len(all_texts)))
+
+    embs = model.encode(
+        all_texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
+    )
+
+    coverages: list[float] = []
+    for pred_idx, sent_start, sent_end in spans:
+        if sent_start < 0:
+            coverages.append(0.0)
+            continue
+        pred_emb = embs[pred_idx]
+        hits = 0
+        for s in range(sent_start, sent_end):
+            if float(embs[s] @ pred_emb) >= threshold:
+                hits += 1
+        coverages.append(hits / (sent_end - sent_start))
+    return coverages
+
+
+def build_review_markdown(rows: list[dict], per_module_n: int = 3, title: str = "评测") -> str:
+    """L3 人工抽查清单：按模块抽样，判定栏留空。"""
     by_module: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         by_module[r.get("source", "unknown")].append(r)
@@ -126,7 +161,7 @@ def build_review_markdown(rows: list[dict], per_module_n: int = 3, title: str = 
     lines = [
         f"# 人工抽查清单（{title}，每模块抽 {per_module_n} 条）",
         "",
-        "> 判定标准：**答对**（要点正确且术语准确）/ **部分**（沾边但缺要点或有错）/ **跑题**（无关或空）",
+        "> 判定：**答对**（要点正确且术语准确）/ **部分**（沾边但缺要点或有错）/ **跑题**（无关或空）",
         "",
         "| # | 模块 | 问题（截断） | 标准答案（截断） | 模型输出（截断） | 判定 | 备注 |",
         "|---|------|-------------|-----------------|-----------------|------|------|",
@@ -140,5 +175,5 @@ def build_review_markdown(rows: list[dict], per_module_n: int = 3, title: str = 
             pred = r["prediction"].replace("\n", " ")[:120]
             lines.append(f"| {idx} | {src} | {q} | {ref} | {pred} |  |  |")
     lines.append("")
-    lines.append("> 完整文本见同目录 eval_predictions_*.jsonl（按行号对应）。")
+    lines.append("> 完整文本见同目录 eval_predictions_*.jsonl。")
     return "\n".join(lines)

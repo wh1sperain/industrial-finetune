@@ -1,7 +1,6 @@
-# 完整锁定版本文件。
+# 依赖锁定文件（占位）。
 #
-# 生成方式（双方各自环境执行后提交，合并冲突时取较高版本并同步 docs/环境搭建.md）：
+# 首次统一环境后生成并提交：
 #   pip freeze > requirements.lock
 #
-# 目的：保证「任何人在任何机器上」依赖完全一致（可复现性约定）。
-# 在双方首次统一环境前，以 requirements.txt + pyproject.toml 为准。
+# 统一前以 requirements.txt + pyproject.toml 为准。

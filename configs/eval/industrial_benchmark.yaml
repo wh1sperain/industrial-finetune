@@ -1,21 +1,15 @@
-# 评测配置（M1 定案：Mining-Engineering 官方评测集）
-# 用法：bash scripts/eval.sh [--probe] [--baseline]
-# 说明：模型名/路径/adapter 目录统一在 configs/models.yaml（唯一事实源，此处不再重复）
+# 评测配置
+# 用法：bash scripts/eval.sh [--probe] [--baseline] [--semantic] [--review N]
+# 模型路径/adapter 目录统一在 configs/models.yaml
 
 name: mining-engineering-eval
 
-# 官方评测集（301 条，六模块分项统计见 docs/训练方案.md §8）
 eval_dataset: acnul/Mining-Engineering-Eval
 eval_dataset_revision: main
-probe_dataset: acnul/Mining-Engineering-Probe    # 50 条，调参期快速验证
+probe_dataset: acnul/Mining-Engineering-Probe
 
-# 生成参数（M1 简化版指标：EM / contain / 分模块）
 max_new_tokens: 256
 batch_size: 8
 
-# L2 语义相似度（可选，评测时加 --semantic 启用）
-# 本地 embedding 模型路径（ModelScope 下载，见 docs/训练评估操作手册.md）
+# L2 语义指标（--semantic 时使用，本地 embedding 模型路径）
 semantic_model_path: ""
-
-# TODO(M2): 企业方确认指标口径后补充：
-# metric (accuracy/f1/...)

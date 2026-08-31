@@ -1,6 +1,5 @@
 .PHONY: setup download train eval test lint
 
-# 统一入口（Windows 请在 Git Bash 中执行）
 setup:
 	python -m pip install -e ".[dev]"
 

@@ -1,8 +1,4 @@
-"""全局随机种子（可复现性）。
-
-torch / numpy 为惰性导入：CI 冒烟测试无 torch 也能运行。
-"""
-from __future__ import annotations
+"""全局随机种子。torch/numpy 惰性导入（无 torch 环境也可用）。"""
 
 
 def set_seed(seed: int = 42) -> None:
