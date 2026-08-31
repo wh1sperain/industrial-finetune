@@ -18,11 +18,11 @@
 #   7. TRL 版本 API 不兼容            → 自检 1.12 <= trl < 2.0
 #   8. 模型路径被 git pull 覆盖回 HF ID → 自检 config 中 model_name_or_path 存在
 # ============================================================================
-set -euo pipefail
-
-# 是否被 source（source 时不允许 exit）
+# 是否被 source（source 时不设置 set -euo pipefail——
+# 否则 set -e 会污染调用者 shell，导致任何失败命令/Ctrl+C 直接退出终端）
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   SOURCED=0
+  set -euo pipefail
 else
   SOURCED=1
 fi
