@@ -24,15 +24,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import torch
-import yaml
 from datasets import load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
-def load_config(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+from industrial_ft.utils.config import load_config
 
 
 def normalize(text: str) -> str:
@@ -120,7 +116,8 @@ def main() -> None:
 
     cfg = load_config(args.config)
     model_name = cfg["model_name_or_path"]
-    adapter_path = cfg["adapter_path"]
+    # 模型路径/输出目录由 utils.config 统一注入（单一事实源：configs/models.yaml）
+    adapter_path = cfg.get("adapter_path") or cfg["adapter_dir"]
     eval_dataset = cfg["eval_dataset"]
     eval_revision = cfg.get("eval_dataset_revision", "main")
     max_new_tokens = cfg.get("max_new_tokens", 256)

@@ -18,18 +18,13 @@ from __future__ import annotations
 
 import argparse
 
-import yaml
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
 
 from industrial_ft.data.loader import load_train_dataset
+from industrial_ft.utils.config import load_config
 from industrial_ft.utils.seed import set_seed
-
-
-def load_config(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def build_lora_config(cfg: dict) -> LoraConfig:

@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_train_config_loads():
-    with open(ROOT / "configs" / "train" / "lora_qwen7b_industrial.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    from industrial_ft.utils.config import load_config
+
+    cfg = load_config(ROOT / "configs" / "train" / "lora_qwen7b_industrial.yaml")
+    # 模型字段由 configs/models.yaml 单一事实源注入
     assert "Qwen" in cfg["model_name_or_path"]
+    assert "output_dir" in cfg and cfg["output_dir"]
+    assert "run_name" in cfg and cfg["run_name"]
     assert cfg["lora_r"] > 0
-    assert "output_dir" in cfg
     # M1 定案数据：Mining-Engineering 矿建工程指令集
     assert "Mining-Engineering" in cfg["dataset"]
     # 5090 加速开关（docs/训练方案.md §5.2）
@@ -26,9 +29,25 @@ def test_train_config_loads():
 
 
 def test_eval_config_loads():
-    with open(ROOT / "configs" / "eval" / "industrial_benchmark.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    assert "adapter_path" in cfg
+    from industrial_ft.utils.config import load_config
+
+    cfg = load_config(ROOT / "configs" / "eval" / "industrial_benchmark.yaml")
+    # 模型/adapter 字段由 models.yaml 注入，与训练配置同源
+    assert "Qwen" in cfg["model_name_or_path"]
+    assert cfg.get("adapter_dir")
+    assert "Mining-Engineering-Eval" in cfg["eval_dataset"]
+    assert "Mining-Engineering-Probe" in cfg["probe_dataset"]
+
+
+def test_models_config_is_single_source():
+    from industrial_ft.utils.config import load_models_config
+
+    models = load_models_config()
+    assert "Qwen" in models["base_model"]
+    assert models["adapter_dir"]
+    assert models["run_name"]
+    # model_path 允许为空（download_model.sh 写入）；若非空则必须是合法字段
+    assert "model_path" in models
 
 
 def test_seed_is_deterministic():

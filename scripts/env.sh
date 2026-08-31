@@ -28,7 +28,6 @@ else
 fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_TRAIN="$REPO_DIR/configs/train/lora_qwen7b_industrial.yaml"
 
 # ============================================================================
 # 1. 数据盘检测与缓存路径（AutoDL: /root/autodl-tmp；其他机器 fallback 到 $HOME）
@@ -111,19 +110,17 @@ except ImportError:
 sys.exit(0 if ok else 1)
 EOF
 
-# 4.2 模型路径（从训练 config 读取，检查本地存在性）
-MODEL_PATH="$(grep -E '^model_name_or_path:' "$CONFIG_TRAIN" 2>/dev/null | awk '{print $2}' | tr -d '"' || true)"
-if [[ -n "$MODEL_PATH" ]]; then
-  if [[ -d "$MODEL_PATH" ]]; then
-    echo "[✓] 模型路径存在: $MODEL_PATH"
-  elif [[ "$MODEL_PATH" == *"://"* || "$MODEL_PATH" == *"/"* ]]; then
-    echo "[✗] config 指向的模型路径不存在: $MODEL_PATH"
-    echo "     → 执行 bash scripts/download_model.sh 下载到本地，或修正 config"
-  else
-    echo "[!] model_name_or_path 是 HF ID（$MODEL_PATH），将走在线下载，建议先 download_model.sh"
-  fi
+# 4.2 模型路径（从 configs/models.yaml 单一事实源读取，检查本地存在性）
+MODEL_PATH="$(grep -E '^model_path:' "$REPO_DIR/configs/models.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || true)"
+BASE_MODEL="$(grep -E '^base_model:' "$REPO_DIR/configs/models.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || true)"
+if [[ -n "$MODEL_PATH" && -d "$MODEL_PATH" ]]; then
+  echo "[✓] 模型本地路径存在: $MODEL_PATH"
+elif [[ -n "$MODEL_PATH" ]]; then
+  echo "[✗] configs/models.yaml 的 model_path 不存在: $MODEL_PATH"
+  echo "     → 执行 bash scripts/download_model.sh 重新下载/修正"
 else
-  echo "[!] 未在 $CONFIG_TRAIN 找到 model_name_or_path"
+  echo "[!] model_path 为空，将使用在线模型 ID（$BASE_MODEL）"
+  echo "     → 建议先执行 bash scripts/download_model.sh 下载到本地"
 fi
 
 # 4.3 评测数据集缓存

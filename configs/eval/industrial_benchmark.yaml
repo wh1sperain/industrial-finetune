@@ -1,9 +1,8 @@
 # 评测配置（M1 定案：Mining-Engineering 官方评测集）
-# 用法：bash scripts/eval.sh configs/eval/industrial_benchmark.yaml
+# 用法：bash scripts/eval.sh [--probe] [--baseline]
+# 说明：模型名/路径/adapter 目录统一在 configs/models.yaml（唯一事实源，此处不再重复）
 
 name: mining-engineering-eval
-model_name_or_path: Qwen/Qwen2.5-7B-Instruct
-adapter_path: output/qwen2.5-7b-mining-eng-sft   # 训练输出的 LoRA adapter
 
 # 官方评测集（301 条，六模块分项统计见 docs/训练方案.md §8）
 eval_dataset: acnul/Mining-Engineering-Eval

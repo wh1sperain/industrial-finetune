@@ -1,0 +1,11 @@
+# 模型配置唯一来源（换模型 / 换路径 / 换实验名，只改这个文件）
+# 解析规则见 src/industrial_ft/utils/config.py：
+#   model_path 本地目录存在 → 用本地路径；否则回退 base_model（在线兜底）
+# 所有入口（train / eval / 脚本）通过 utils.config.load_config() 自动合并，无需各自维护
+
+base_model: Qwen/Qwen2.5-7B-Instruct   # 模型 ID（HF / ModelScope，在线兜底）
+# 本地路径：由 scripts/download_model.sh 自动写入（如 /root/autodl-tmp/modelscope/hub/Qwen/Qwen2.5-7B-Instruct）
+model_path: ""
+adapter_dir: output/qwen2.5-7b-mining-eng-sft   # LoRA 输出目录（训练保存 / 评测加载，共用）
+run_name: qwen2.5-7b-mining-eng-sft             # 实验名（wandb 共用）
+trust_remote_code: false

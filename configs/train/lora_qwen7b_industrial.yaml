@@ -1,10 +1,9 @@
-# SFT LoRA 训练配置（Qwen2.5-7B + 公开工业数据集占位）
+# SFT LoRA 训练配置（Qwen2.5-7B + Mining-Engineering 矿建工程数据集）
 # 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml
-# 说明：实验参数一律在此修改，代码不硬编码；完整方案见 docs/训练方案.md
-
-### 模型
-model_name_or_path: Qwen/Qwen2.5-7B-Instruct   # 或 Qwen/Qwen2.5-7B（见 docs/训练方案.md §2）
-trust_remote_code: true
+# 说明：
+#   - 实验参数一律在此修改，代码不硬编码
+#   - 模型名/路径/输出目录/实验名统一在 configs/models.yaml（唯一事实源，此处不再重复）
+#   - 完整方案见 docs/训练方案.md
 
 ### 数据（已定案 Mining-Engineering 矿建工程系列，中文，MIT，5,287 条）
 dataset: acnul/Mining-Engineering-SFT   # HF 数据集名（字段：prompt/response/source）
@@ -44,6 +43,5 @@ dataloader_num_workers: 4       # 数据加载不拖 GPU
 # 用法：bash scripts/train.sh configs/train/lora_qwen7b_industrial.yaml --resume
 
 ### 输出与追踪
-output_dir: output/qwen2.5-7b-mining-eng-sft
 report_to: wandb            # 无 wandb 环境可改 none
-run_name: qwen2.5-7b-mining-eng-sft
+# output_dir / run_name 统一在 configs/models.yaml（adapter_dir / run_name）
