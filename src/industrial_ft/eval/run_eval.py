@@ -24,7 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import torch
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -146,12 +146,16 @@ def main() -> None:
         print("[eval] baseline 模式: 基座 zero-shot（不加载 adapter）")
     model.eval()
 
-    # 2. 加载评测集（prompt / response / source 三字段）
-    ds = load_dataset(eval_dataset, split="train")
+    # 2. 加载评测集：按模块分为 6 个 split（concept/forum/law/safety/specifications/synthesis）
+    #    合并为一个数据集，split 名即模块名（source），直接用于分模块统计
+    ds_dict = load_dataset(eval_dataset)
+    ds = concatenate_datasets(list(ds_dict.values()))
     prompts = [f"问：{r['prompt']}" for r in ds]
     references = [r["response"] for r in ds]
-    sources = [r.get("source", "unknown") for r in ds]
-    print(f"[eval] samples: {len(ds)}")
+    sources = []
+    for split_name, part in ds_dict.items():
+        sources.extend([split_name] * len(part))
+    print(f"[eval] samples: {len(ds)} (模块: {list(ds_dict.keys())})")
 
     # 3. 分批生成
     predictions: list[str] = []
