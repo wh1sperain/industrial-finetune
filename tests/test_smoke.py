@@ -50,6 +50,41 @@ def test_models_config_is_single_source():
     assert "model_path" in models
 
 
+def test_metrics_term_coverage():
+    """L1 术语覆盖率：metrics 模块无 torch 依赖，CI 可测。"""
+    from industrial_ft.utils.metrics import compute_metrics, extract_key_terms
+
+    # 术语提取：引号术语 + 书名号规范 + 英文缩写
+    terms = extract_key_terms('"欠挖"与"超挖"的区别，参考《GBT 50562-2019 标准》和 CAPEX 指标')
+    assert "欠挖" in terms and "超挖" in terms
+    assert any("GBT 50562" in t for t in terms)
+    assert "CAPEX" in terms
+
+    # 覆盖率：输出含一半术语 → 0.5
+    refs = ['"凿井"与"巷道掘进"的差异（CAPEX 影响）']
+    preds = ["凿井和巷道掘进…… CAPEX 方面……"]  # 命中：凿井/巷道掘进/CAPEX（3/4 取决于提取）
+    m = compute_metrics(preds, refs, ["concept"])
+    assert 0 < m["term_coverage"] <= 1.0
+    # 完全没命中 → 0
+    m0 = compute_metrics(["完全无关的回答"], refs, ["concept"])
+    assert m0["term_coverage"] == 0.0
+
+
+def test_build_review_markdown():
+    """L3 人工抽查清单：每模块抽样条数正确。"""
+    from industrial_ft.utils.metrics import build_review_markdown
+
+    rows = [
+        {"prompt": "q", "reference": "r", "prediction": "p", "source": "law"},
+        {"prompt": "q", "reference": "r", "prediction": "p", "source": "law"},
+        {"prompt": "q", "reference": "r", "prediction": "p", "source": "safety"},
+        {"prompt": "q", "reference": "r", "prediction": "p", "source": "safety"},
+    ]
+    md = build_review_markdown(rows, per_module_n=1, title="TEST")
+    assert "TEST" in md
+    assert md.count("| law |") == 1 and md.count("| safety |") == 1
+
+
 def test_seed_is_deterministic():
     import random
 

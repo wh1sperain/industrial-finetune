@@ -7,20 +7,22 @@
     python -m industrial_ft.eval.run_eval --config configs/eval/industrial_benchmark.yaml
     # 基座对照（不加载 adapter，测 zero-shot 增量）：
     python -m industrial_ft.eval.run_eval --config configs/eval/industrial_benchmark.yaml --baseline
+    # 调整人工抽查条数（默认每模块 3 条，0 关闭）：
+    python -m industrial_ft.eval.run_eval --config ... --probe --review 3
 
-指标（M1 简化版；企业方确认工业口径后可扩展 compute_metrics）：
-- 非空率  ：模型输出非空比例（链路有效性）
-- EM      ：规范化后完全匹配率
-- contain ：模型输出包含标准答案的比例（仅统计标准答案长度 ≥4 的样本，防短答案误判）
-- 分模块  ：按 source 六类分别统计（定位能力短板）
-- 预测结果保存到 JSONL，供人工抽查
+指标（分层设计）：
+- L0 链路检查：非空率 / EM / contain（仅诊断用，长文生成任务参考性低）
+- L1 术语覆盖率：从标准答案自动提取关键术语（引号术语/书名号规范/英文缩写），
+  统计模型输出包含比例——长文问答的主指标，可解释、零依赖
+- L2 语义相似度：M2 预留（embedding cosine，需 sentence-transformers）
+- L3 人工抽查：每模块抽取 N 条生成 markdown 清单，双方人工判定（答对/部分/跑题）
+
+产物：eval_predictions_*.jsonl（全量预测）+ eval_review_*.md（人工抽查清单）
 """
 from __future__ import annotations
 
 import argparse
 import json
-import re
-from collections import defaultdict
 from pathlib import Path
 
 import torch
@@ -29,13 +31,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from industrial_ft.utils.config import load_config
-
-
-def normalize(text: str) -> str:
-    """规范化：去空白与标点，用于严格匹配。"""
-    text = re.sub(r"\s+", "", text or "")
-    text = re.sub(r"[，。！？、；：""''（）()《》【】\-—\s]", "", text)
-    return text
+from industrial_ft.utils.metrics import build_review_markdown, compute_metrics
 
 
 def generate_batch(model, tokenizer, prompts: list[str], max_new_tokens: int) -> list[str]:
@@ -62,43 +58,6 @@ def generate_batch(model, tokenizer, prompts: list[str], max_new_tokens: int) ->
     return results
 
 
-def compute_metrics(predictions: list[str], references: list[str], sources: list[str]) -> dict:
-    """计算非空率 / EM / contain 及六模块分项。"""
-    total = len(references)
-    non_empty = sum(1 for p in predictions if p.strip())
-    em = contain = 0
-    per_module = defaultdict(lambda: {"total": 0, "em": 0, "contain": 0})
-
-    for pred, ref, src in zip(predictions, references, sources):
-        p_norm, r_norm = normalize(pred), normalize(ref)
-        if r_norm and r_norm == p_norm:
-            em += 1
-        if len(r_norm) >= 4 and r_norm in p_norm:
-            contain += 1
-        m = per_module[src or "unknown"]
-        m["total"] += 1
-        if r_norm and r_norm == p_norm:
-            m["em"] += 1
-        if len(r_norm) >= 4 and r_norm in p_norm:
-            m["contain"] += 1
-
-    metrics = {
-        "total": total,
-        "non_empty": non_empty / total if total else 0,
-        "em": em / total if total else 0,
-        "contain": contain / total if total else 0,
-    }
-    metrics["per_module"] = {
-        src: {
-            "total": m["total"],
-            "em": m["em"] / m["total"] if m["total"] else 0,
-            "contain": m["contain"] / m["total"] if m["total"] else 0,
-        }
-        for src, m in sorted(per_module.items())
-    }
-    return metrics
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a fine-tuned model (TRL 1.x project)")
     parser.add_argument("--config", required=True, help="path to yaml config under configs/eval/")
@@ -111,6 +70,12 @@ def main() -> None:
         "--baseline",
         action="store_true",
         help="不加载 adapter，评测基座模型（zero-shot 对照）",
+    )
+    parser.add_argument(
+        "--review",
+        type=int,
+        default=3,
+        help="L3 人工抽查：每模块抽取条数（默认 3，0 关闭）",
     )
     args = parser.parse_args()
 
@@ -164,18 +129,22 @@ def main() -> None:
         predictions.extend(preds)
         print(f"[eval] {min(i + batch_size, len(prompts))}/{len(prompts)}")
 
-    # 4. 指标
+    # 4. 指标（L0 链路 + L1 术语覆盖率 + 分模块）
     metrics = compute_metrics(predictions, references, sources)
     print("\n===== 评测结果 =====")
-    print(f"总样本: {metrics['total']}")
-    print(f"非空率 : {metrics['non_empty']:.2%}")
-    print(f"EM     : {metrics['em']:.2%}")
-    print(f"contain: {metrics['contain']:.2%}")
+    print(f"总样本   : {metrics['total']}")
+    print(f"非空率   : {metrics['non_empty']:.2%}")
+    print(f"EM       : {metrics['em']:.2%}   （L0 诊断用，长文任务参考性低）")
+    print(f"contain  : {metrics['contain']:.2%}   （L0 诊断用，长文任务参考性低）")
+    print(f"术语覆盖率: {metrics['term_coverage']:.2%}   （L1 主指标）")
     print("\n--- 分模块 ---")
     for src, m in metrics["per_module"].items():
-        print(f"{src:<15} n={m['total']:<4} EM={m['em']:.2%}  contain={m['contain']:.2%}")
+        print(
+            f"{src:<15} n={m['total']:<4} EM={m['em']:.2%}  contain={m['contain']:.2%}  "
+            f"术语覆盖率={m['term_coverage']:.2%}"
+        )
 
-    # 5. 保存预测（供人工抽查 / 企业方指标复核）
+    # 5. 保存产物
     out_dir = Path(cfg.get("output_dir", adapter_path))
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = []
@@ -183,17 +152,27 @@ def main() -> None:
         tag.append("probe")
     if args.baseline:
         tag.append("baseline")
-    out_file = out_dir / ("eval_predictions_" + "_".join(tag) + ".jsonl" if tag else "eval_predictions.jsonl")
+    suffix = "_" + "_".join(tag) if tag else ""
+
+    # 5a. 全量预测 JSONL（供复核 / L2 语义相似度复用）
+    rows = [
+        {"prompt": p, "reference": r, "prediction": pred, "source": src}
+        for p, r, pred, src in zip(prompts, references, predictions, sources)
+    ]
+    out_file = out_dir / f"eval_predictions{suffix}.jsonl"
     with open(out_file, "w", encoding="utf-8") as f:
-        for p, r, pred, src in zip(prompts, references, predictions, sources):
-            f.write(
-                json.dumps(
-                    {"prompt": p, "reference": r, "prediction": pred, "source": src},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
     print(f"\n预测结果已保存: {out_file}")
+
+    # 5b. L3 人工抽查清单（markdown）
+    if args.review > 0:
+        review_md = build_review_markdown(
+            rows, per_module_n=args.review, title="PROBE" if args.probe else "EVAL"
+        )
+        review_file = out_dir / f"eval_review{suffix}.md"
+        review_file.write_text(review_md, encoding="utf-8")
+        print(f"人工抽查清单已保存: {review_file}（每模块 {args.review} 条）")
 
 
 if __name__ == "__main__":
