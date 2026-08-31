@@ -22,4 +22,9 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 1
 fi
 
+# Xet 下载协议在部分网络下有 401 bug（github.com/huggingface/xet-core#404），强制回退传统 HTTP
+export HF_HUB_DISABLE_XET=1
+# 若 HF 直连慢/失败，可启用国内镜像（二选一，勿同时用）：
+# export HF_ENDPOINT=https://hf-mirror.com
+
 python -m industrial_ft.eval.run_eval --config "$CONFIG" "${ARGS[@]}"
