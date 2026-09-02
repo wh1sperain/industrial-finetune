@@ -10,6 +10,7 @@ from industry_instruction.data.loader import load_train_dataset
 from industry_instruction.utils.config import load_train_config
 from industry_instruction.utils.seed import set_seed
 
+
 def build_lora_config(cfg: dict) -> LoraConfig:
     return LoraConfig(
         r=cfg["lora_r"],
@@ -18,6 +19,7 @@ def build_lora_config(cfg: dict) -> LoraConfig:
         target_modules=cfg.get("lora_target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"]),
         task_type="CAUSAL_LM",
     )
+
 
 def build_model_and_tokenizer(cfg: dict):
     model_name = cfg["model_name_or_path"]
@@ -47,6 +49,30 @@ def build_model_and_tokenizer(cfg: dict):
         attn_implementation=attn_implementation,
     )
     return model, tokenizer
+
+
+def build_formatting_func(tokenizer):
+    """将 prompt/completion 包装成 chat template 后的完整 text。
+
+    使用 formatting_func 后，TRL 不再单独 tokenize prompt 并与
+    prompt+completion 做前缀校验，可避免 Qwen BPE 跨边界合并导致的
+    "Mismatch between tokenized prompt..." 报错。
+    """
+
+    def formatting_func(example):
+        messages = [
+            {"role": "user", "content": example["prompt"]},
+            {"role": "assistant", "content": example["completion"]},
+        ]
+        return {
+            "text": tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+        }
+
+    return formatting_func
 
 
 def main() -> None:
@@ -99,6 +125,7 @@ def main() -> None:
         train_dataset=train_dataset,
         processing_class=tokenizer,
         peft_config=build_lora_config(cfg),
+        formatting_func=build_formatting_func(tokenizer),
     )
 
     trainer.train(resume_from_checkpoint=args.resume or None)
