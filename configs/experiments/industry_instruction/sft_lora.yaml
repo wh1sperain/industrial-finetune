@@ -21,8 +21,8 @@ train:
   lora_alpha: 16
   lora_dropout: 0.05
   lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
   learning_rate: 2.0e-4
   lr_scheduler_type: cosine
   warmup_steps: 30
@@ -34,9 +34,9 @@ train:
   save_steps: 500
   save_total_limit: 2
   seed: 42
-  torch_compile: true
+  torch_compile: false
   attn_implementation: sdpa   # Blackwell (sm_120) 不兼容 flash_attention_2
-  optim: adamw_torch_fused
+  optim: adamw_8bit
   dataloader_num_workers: 4
   report_to: wandb            # 无 wandb 环境可改 none
 
