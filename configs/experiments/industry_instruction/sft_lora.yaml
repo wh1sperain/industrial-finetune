@@ -1,0 +1,48 @@
+# 实验配置（自包含：模型/数据/超参/输出，一个配置一个文件）
+# 所属代码级实验：industry_instruction
+# 用法：bash scripts/experiments/industry_instruction/train.sh sft_lora
+#       bash scripts/experiments/industry_instruction/eval.sh sft_lora
+# 新增配置 = 复制本文件改名改参数，无需改代码
+
+name: sft_lora
+model: Qwen/Qwen2.5-7B-Instruct
+output_dir: output/sft_lora
+run_name: sft_lora
+trust_remote_code: false
+
+train:
+  dataset: Parssky/industrial-instruction-dataset   # HF 数据集 ID 或本地目录路径；字段约定：question/answer/documents
+  dataset_revision: main
+  dataset_name : panasonic_qa_claude_v1
+  max_train_samples: null     # 冒烟调试设 512；正式训练留 null
+  max_length: 2048            # TRL 1.x 字段名（旧版 max_seq_length）
+  qlora: false                # true = 4bit NF4 量化
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 30
+  num_train_epochs: 3.0
+  weight_decay: 0.01
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 2
+  seed: 42
+  torch_compile: true
+  attn_implementation: sdpa   # Blackwell (sm_120) 不兼容 flash_attention_2
+  optim: adamw_torch_fused
+  dataloader_num_workers: 4
+  report_to: wandb            # 无 wandb 环境可改 none
+
+eval:
+  eval_dataset: Parssky/industrial-instruction-dataset
+  eval_dataset_revision: main
+  max_new_tokens: 256
+  batch_size: 8
+  semantic_model_path: ""     # L2 语义指标（--semantic）用，本地 embedding 模型路径
