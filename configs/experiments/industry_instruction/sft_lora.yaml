@@ -43,6 +43,7 @@ train:
 eval:
   eval_dataset: Parssky/industrial-instruction-dataset
   eval_dataset_revision: main
+  eval_dataset_name: panasonic_qa_claude_v1
   max_new_tokens: 256
   batch_size: 8
   semantic_model_path: ""     # L2 语义指标（--semantic）用，本地 embedding 模型路径

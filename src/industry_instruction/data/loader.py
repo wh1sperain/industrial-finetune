@@ -5,6 +5,8 @@ import os
 from datasets import load_dataset
 
 def normalize_documents(documents):
+    if documents is None:
+        documents = []
     if isinstance(documents, str):
         documents = [documents]
     flat_docs = []
@@ -26,9 +28,15 @@ def format_sample(sample: dict) -> dict:
         question: {}
     """
     prompt = prompt.format("\n".join(documents), sample.get("question", "").strip())
+    answer = sample.get("answer", [])
+    if isinstance(answer, str):
+        answer_text = answer.strip()
+    else:
+        # answer 是 list，例如 ["A"] / ["B", "C"]，官方训练用 str(answer) 作为 completion
+        answer_text = str(answer)
     return {
         "prompt": prompt,
-        "completion": sample.get('answer', '').strip()
+        "completion": answer_text,
     }
 
 def load_train_dataset(
@@ -44,4 +52,5 @@ def load_train_dataset(
         ds = load_dataset(dataset, split="train", revision=revision, name=name)
     if max_samples is not None:
         ds = ds.select(range(min(max_samples, len(ds))))
-    return ds.map(lambda s: format_sample(s), remove_columns=["answer", "question"])
+    remove_cols = [c for c in ["answer", "question"] if c in ds.column_names]
+    return ds.map(lambda s: format_sample(s), remove_columns=remove_cols)
