@@ -51,28 +51,16 @@ def build_model_and_tokenizer(cfg: dict):
     return model, tokenizer
 
 
-def build_formatting_func(tokenizer):
-    """将 prompt/completion 包装成 chat template 后的完整 text。
+def to_conversational(example: dict) -> dict:
+    """把字符串 prompt/completion 转成 TRL 的对话式 prompt/completion 格式。
 
-    使用 formatting_func 后，TRL 不再单独 tokenize prompt 并与
-    prompt+completion 做前缀校验，可避免 Qwen BPE 跨边界合并导致的
-    "Mismatch between tokenized prompt..." 报错。
+    转换后 TRL 会自动应用 chat template，并支持 completion_only_loss=True，
+    同时避免标准 prompt/completion 的“前缀 token 校验”问题。
     """
-
-    def formatting_func(example):
-        messages = [
-            {"role": "user", "content": example["prompt"]},
-            {"role": "assistant", "content": example["completion"]},
-        ]
-        return {
-            "text": tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-        }
-
-    return formatting_func
+    return {
+        "prompt": [{"role": "user", "content": example["prompt"]}],
+        "completion": [{"role": "assistant", "content": example["completion"]}],
+    }
 
 
 def main() -> None:
@@ -95,6 +83,7 @@ def main() -> None:
         name=cfg.get("dataset_name"),
         max_samples=cfg.get("max_train_samples"),
     )
+    train_dataset = train_dataset.map(to_conversational)
 
     sft_config = SFTConfig(
         output_dir=cfg["output_dir"],
@@ -117,6 +106,7 @@ def main() -> None:
         torch_compile=cfg.get("torch_compile", False),
         optim=cfg.get("optim", "adamw_torch"),
         dataloader_num_workers=cfg.get("dataloader_num_workers", 0),
+        completion_only_loss=True,
     )
 
     trainer = SFTTrainer(
@@ -125,7 +115,6 @@ def main() -> None:
         train_dataset=train_dataset,
         processing_class=tokenizer,
         peft_config=build_lora_config(cfg),
-        formatting_func=build_formatting_func(tokenizer),
     )
 
     trainer.train(resume_from_checkpoint=args.resume or None)
