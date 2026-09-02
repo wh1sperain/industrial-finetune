@@ -127,6 +127,8 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    # decoder-only 批量生成必须 left padding，否则 pad token 在末尾会影响生成
+    tokenizer.padding_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
