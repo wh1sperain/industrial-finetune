@@ -112,6 +112,11 @@ def main() -> None:
         action="store_true",
         help="不加载 adapter，评测基座模型",
     )
+    parser.add_argument(
+        "--norag",
+        action="store_true",
+        help="NORAG 模式：prompt 不包含 documents，只给 question",
+    )
     args = parser.parse_args()
 
     cfg = load_eval_config(args.experiment)
@@ -152,10 +157,15 @@ def main() -> None:
         revision=eval_revision,
     )
     print(f"[eval] 评测集: {eval_dataset} / {eval_dataset_name} / test，样本数 {len(ds)}")
+    print(f"[eval] 模式: {'NORAG' if args.norag else 'RAG'}")
 
     records = []
     for sample in ds:
-        prompt = format_sample(sample)["prompt"]
+        if args.norag:
+            question = sample.get("question", "").strip()
+            prompt = f"Follow the instruction and answer the question, below:\n{question}"
+        else:
+            prompt = format_sample(sample)["prompt"]
         chat_text = build_chat_prompt(tokenizer, prompt)
         records.append(
             {
@@ -199,6 +209,8 @@ def main() -> None:
     tag = []
     if args.baseline:
         tag.append("baseline")
+    if args.norag:
+        tag.append("norag")
     suffix = "_" + "_".join(tag) if tag else ""
 
     rows = [

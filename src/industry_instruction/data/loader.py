@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 
 from datasets import load_dataset
+
 
 def normalize_documents(documents):
     if documents is None:
@@ -19,8 +21,10 @@ def normalize_documents(documents):
             flat_docs.append(str(doc))
     return flat_docs
 
+
 def format_sample(sample: dict) -> dict:
-    """原始字段 question/answer/documents → {"prompt": "", "completion": ""}（documents 列加入到prompt之中）。"""
+    """原始字段 question/answer/documents → {"prompt": "...", "completion": '{"answer": ["A"]}'}。
+    """
     documents = normalize_documents(sample.get("documents", ""))
     prompt = """
         Based on relevant document answer this question.
@@ -28,16 +32,19 @@ def format_sample(sample: dict) -> dict:
         question: {}
     """
     prompt = prompt.format("\n".join(documents), sample.get("question", "").strip())
+
     answer = sample.get("answer", [])
     if isinstance(answer, str):
-        answer_text = answer.strip()
+        answer_list = [answer.strip()] if answer.strip() else []
     else:
-        # answer 是 list，例如 ["A"] / ["B", "C"]，官方训练用 str(answer) 作为 completion
-        answer_text = str(answer)
+        answer_list = [str(x).strip() for x in answer]
+    completion = json.dumps({"answer": answer_list}, ensure_ascii=False)
+
     return {
         "prompt": prompt,
-        "completion": answer_text,
+        "completion": completion,
     }
+
 
 def load_train_dataset(
     dataset: str,
