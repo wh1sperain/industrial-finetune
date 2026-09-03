@@ -72,6 +72,9 @@ def parse_answer(text: str):
             return None
     if isinstance(parsed, dict):
         return parsed.get("answer")
+    if isinstance(parsed, set):
+        # ast.literal_eval 可能把 {'A'} 解析成 set，转成 list 便于 JSON 序列化
+        return sorted(parsed)
     if isinstance(parsed, list):
         return parsed
     return parsed
@@ -82,7 +85,7 @@ def normalize_answer_set(answer):
         return set()
     if isinstance(answer, str):
         return {answer.strip()}
-    if isinstance(answer, (list, tuple)):
+    if isinstance(answer, (list, tuple, set)):
         return {str(x).strip() for x in answer}
     return {str(answer).strip()}
 
