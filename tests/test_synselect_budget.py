@@ -13,7 +13,7 @@ from synselect.run_budget import compare_predictions, run_child
 from synselect.utils.budget import WallBudget
 from synselect.utils.config import load_config
 from synselect.utils.sampling import clevr_family, program_depth, stratified_sample
-from synselect.utils.timing import optimizer_steps
+from synselect.utils.timing import optimizer_steps, planning_estimate
 
 
 def sft_records(n=100):
@@ -103,6 +103,29 @@ class SamplingTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
+    def test_five_hour_calibration_and_handoff(self):
+        from synselect.utils.config import local_path
+        sft, grpo = load_config("sft_5h"), load_config("grpo_5h")
+        self.assertEqual(sft["eval"], grpo["eval"])
+        self.assertEqual(local_path(grpo["sft_adapter"]), Path(sft["output_dir"]))
+        self.assertEqual(optimizer_steps(sft, 8192), 512)
+        self.assertEqual(optimizer_steps(grpo, 1024), 512)
+        self.assertAlmostEqual(planning_estimate(sft, 8192)["hours_low"], 1)
+        estimate = planning_estimate(grpo, 1024)
+        self.assertAlmostEqual(estimate["hours_low"], 160 / 60)
+        self.assertIn("in_progress_projection", estimate["basis"])
+
+    def test_five_hour_stage_limits_fit_total(self):
+        from industrial_ft.utils.config import load_yaml, REPO_ROOT
+        plan = load_yaml(REPO_ROOT / "configs/experiments/synselect/budget_5h.yaml")
+        sft = load_config(plan["sft_experiment"])
+        grpo = load_config(plan["grpo_experiment"])
+        scheduled = (plan["preflight_seconds"] + sft["runtime"]["max_wall_seconds"] +
+                     grpo["runtime"]["max_wall_seconds"] + 3 * grpo["eval"]["max_wall_seconds"])
+        self.assertEqual(scheduled, 295 * 60)
+        self.assertEqual(plan["total_seconds"], 5 * 3600)
+        self.assertLess(scheduled + plan["cleanup_seconds"], plan["total_seconds"])
+
     def test_deadline_and_reserve_choose_earliest_bound(self):
         current = [0.]
         budget = WallBudget(seconds=100, deadline=1060, reserve=10,

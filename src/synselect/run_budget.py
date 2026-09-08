@@ -96,7 +96,7 @@ def main():
     for cfg in (sft, grpo):
         path = Path(cfg["output_dir"])
         if path.exists() and any(path.iterdir()):
-            raise FileExistsError(f"Use fresh experiment output paths for an 8-hour run: {path}")
+            raise FileExistsError(f"Use fresh experiment output paths for a budgeted run: {path}")
     output = local_path(plan["output_dir"])
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(output)

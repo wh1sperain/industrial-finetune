@@ -1,0 +1,10 @@
+# 10m preflight + 70m SFT + 170m GRPO + 45m evaluation = 295m.
+total_seconds: 18000
+cleanup_seconds: 30
+preflight_seconds: 600
+output_dir: output/synselect/budget_5h
+sft_experiment: sft_5h
+grpo_experiment: grpo_5h
+eval_aggregate_tokens_per_second:
+- 40
+- 100
