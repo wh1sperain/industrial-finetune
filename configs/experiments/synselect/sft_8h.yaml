@@ -1,0 +1,100 @@
+# Eight-hour pilot: see docs/synselect_8h.md. Server training only.
+stage: sft
+model: Qwen/Qwen2.5-VL-7B-Instruct
+output_dir: output/synselect/sft_8h
+run_name: synselect_sft_8h
+model_options:
+  attn_implementation: sdpa
+  trust_remote_code: false
+processor:
+  min_pixels: 50176
+  max_pixels: 200704
+prompt:
+  template: 问：{prompt}
+  system: Reason about the image and question. Put your reasoning in <think>...</think> and your final
+    answer in <answer>...</answer>.
+dataset:
+  format: sharegpt
+  annotations: ${SYNSELECT_SFT_ROOT}/data.json
+  image_root: ${SYNSELECT_SFT_ROOT}/images
+  max_samples: 2048
+  seed: 42
+  sampling:
+    strategy: sft_length_type
+    allocation: proportional
+    length_bins:
+    - 400
+    - 800
+    - 1600
+    max_completion_chars: 3200
+    max_per_image: 1
+    require_count: true
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.0
+  target_modules: .*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$
+  task_type: CAUSAL_LM
+train:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-05
+  num_train_epochs: 1.0
+  max_steps: -1
+  lr_scheduler_type: cosine
+  warmup_steps: 8
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  bf16: true
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  optim: adamw_torch_fused
+  max_length: null
+  packing: false
+  completion_only_loss: true
+  loss_type: nll
+  remove_unused_columns: false
+  dataloader_num_workers: 2
+  logging_steps: 1
+  save_steps: 64
+  save_total_limit: 2
+  report_to: none
+  torch_compile: false
+  seed: 42
+runtime:
+  max_sequence_tokens: 4096
+  benchmark_warmup_steps: 2
+  expected_torch: 2.12.1
+  expected_cuda: '13.0'
+  expected_gpu: RTX 5090
+  max_wall_seconds: 7200
+  save_reserve_seconds: 180
+  step_time_safety_factor: 1.5
+eval:
+  dataset:
+    format: clevr
+    annotations: ${CLEVR_ROOT}/questions/CLEVR_val_questions.json
+    image_root: ${CLEVR_ROOT}/images/val
+    max_samples: 64
+    seed: 20260907
+    sampling:
+      strategy: clevr_task_depth
+      allocation: balanced
+      depth_bins:
+      - 6
+      - 10
+      balance_answers: true
+      max_per_image: 1
+      require_count: true
+  do_sample: false
+  max_new_tokens: 512
+  max_wall_seconds: 1200
+  save_reserve_seconds: 30
+estimate:
+  sample_counts:
+  - 2048
+  seconds_per_sample:
+  - 0.8
+  - 3.0
+  overhead_fraction: 0.15

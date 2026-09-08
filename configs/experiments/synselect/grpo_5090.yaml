@@ -1,0 +1,79 @@
+stage: grpo
+model: Qwen/Qwen2.5-VL-7B-Instruct
+sft_adapter: output/synselect/sft_5090
+output_dir: output/synselect/grpo_5090
+run_name: synselect_grpo_5090
+model_options:
+  attn_implementation: sdpa
+  trust_remote_code: false
+processor:
+  min_pixels: 50176
+  max_pixels: 200704
+prompt:
+  template: "问：{prompt}"
+  system: "Reason about the image and question. Put your reasoning in <think>...</think> and your final answer in <answer>...</answer>."
+dataset:
+  # User supplies CLEVR. Exact subset used by SynSelect is not published locally.
+  format: clevr
+  annotations: ${CLEVR_ROOT}/questions/CLEVR_train_questions.json
+  image_root: ${CLEVR_ROOT}/images/train
+  count_only: false
+  max_samples: null       # Set 10000 for a pilot; null means ALL supplied questions
+train:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 32  # 32 completions = 8 unique questions per update
+  generation_batch_size: 4        # Only one question's 4 rollouts resident at a time
+  num_generations: 4
+  num_iterations: 1
+  max_completion_length: 1024
+  temperature: 1.0
+  top_p: 1.0
+  top_k: 0
+  generation_kwargs: {do_sample: true, use_cache: true}
+  use_vllm: false
+  loss_type: grpo                 # TRL's default DAPO is a different objective
+  scale_rewards: group
+  beta: 0.04
+  epsilon: 0.2
+  reward_weights: [1.0, 1.0]       # Accuracy + format, explicit implementation choice
+  mask_truncated_completions: false
+  learning_rate: 1.0e-6
+  num_train_epochs: 1.0
+  max_steps: -1
+  lr_scheduler_type: constant
+  warmup_steps: 0
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  bf16: true
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs: {use_reentrant: false}
+  optim: adamw_torch_fused
+  remove_unused_columns: false
+  dataloader_num_workers: 0
+  logging_steps: 1
+  save_steps: 100
+  save_total_limit: 2
+  report_to: none
+  torch_compile: false
+  seed: 42
+runtime:
+  max_sequence_tokens: 4096
+  benchmark_warmup_steps: 2
+  expected_torch: 2.12.1
+  expected_cuda: '13.0'
+  expected_gpu: RTX 5090
+eval:
+  dataset:
+    format: clevr
+    annotations: ${CLEVR_ROOT}/questions/CLEVR_val_questions.json
+    image_root: ${CLEVR_ROOT}/images/val
+    max_samples: 500
+  do_sample: false
+  max_new_tokens: 1024
+estimate:
+  # Examples only: actual N must come from the prepared CLEVR question file.
+  sample_counts: [10000, 70000, 699989]
+  average_completion_tokens: 256
+  aggregate_generation_tokens_per_second: [60, 180]
+  update_seconds_per_completion: [0.5, 2.0]
+  overhead_fraction: 0.15

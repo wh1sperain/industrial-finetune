@@ -1,0 +1,72 @@
+# Single RTX 5090 adaptation, not an exact full-parameter reproduction.
+stage: sft
+model: Qwen/Qwen2.5-VL-7B-Instruct
+output_dir: output/synselect/sft_5090
+run_name: synselect_sft_5090
+model_options:
+  attn_implementation: sdpa
+  trust_remote_code: false
+processor:
+  min_pixels: 50176       # 64 visual tokens, 64 * 28 * 28
+  max_pixels: 200704      # 256 visual tokens; increase only after measuring memory
+prompt:
+  template: "问：{prompt}"
+  system: "Reason about the image and question. Put your reasoning in <think>...</think> and your final answer in <answer>...</answer>."
+dataset:
+  format: sharegpt
+  annotations: ${SYNSELECT_SFT_ROOT}/data.json
+  image_root: ${SYNSELECT_SFT_ROOT}/images
+  max_samples: null
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.0
+  # Match decoder modules only, freeze the vision encoder and merger.
+  target_modules: '.*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$'
+  task_type: CAUSAL_LM
+train:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 32
+  learning_rate: 1.0e-5    # R1-Onevision model card full-SFT LR; LoRA needs validation
+  num_train_epochs: 1.0
+  max_steps: -1
+  lr_scheduler_type: cosine
+  warmup_steps: 30
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  bf16: true
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs: {use_reentrant: false}
+  optim: adamw_torch_fused
+  max_length: null        # Never truncate image tokens or the target answer
+  packing: false
+  completion_only_loss: true
+  loss_type: nll
+  remove_unused_columns: false
+  dataloader_num_workers: 2
+  logging_steps: 1
+  save_steps: 100
+  save_total_limit: 2
+  report_to: none
+  torch_compile: false
+  seed: 42
+runtime:
+  max_sequence_tokens: 4096  # Fail with example IDs, never silently truncate
+  benchmark_warmup_steps: 2
+  expected_torch: 2.12.1
+  expected_cuda: '13.0'
+  expected_gpu: RTX 5090
+eval:
+  # Independent CLEVR validation set for a pipeline sanity check, not paper benchmarks.
+  dataset:
+    format: clevr
+    annotations: ${CLEVR_ROOT}/questions/CLEVR_val_questions.json
+    image_root: ${CLEVR_ROOT}/images/val
+    max_samples: 500
+  do_sample: false
+  max_new_tokens: 1024
+estimate:
+  sample_counts: [30069]
+  # Planning assumptions, NOT a measured RTX 5090 benchmark. Includes visual processing.
+  seconds_per_sample: [0.8, 3.0]
+  overhead_fraction: 0.15

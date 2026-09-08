@@ -1,0 +1,10 @@
+# One Linux server invocation owns the total wall-clock deadline, including setup.
+total_seconds: 28800
+cleanup_seconds: 30
+preflight_seconds: 900
+output_dir: output/synselect/budget_8h
+sft_experiment: sft_8h
+grpo_experiment: grpo_8h
+# Per-stage limits are in each experiment's runtime/eval sections.
+# Estimated evaluation decode speed is a planning assumption, not a measurement.
+eval_aggregate_tokens_per_second: [40, 100]
