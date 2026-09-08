@@ -1,0 +1,41 @@
+# Evaluation only: existing adapters, no training datasets or training commands.
+stage: eval
+model: Qwen/Qwen2.5-VL-7B-Instruct
+output_dir: output/synselect/mathverse_1h
+models:
+  baseline: null
+  sft: output/synselect/sft_5h
+  grpo: output/synselect/grpo_5h
+model_options:
+  attn_implementation: sdpa
+  trust_remote_code: false
+processor:
+  min_pixels: 50176
+  max_pixels: 200704
+prompt:
+  template: '问：{prompt}'
+  system: 'Reason about the image and question. Put your reasoning in <think>...</think> and your final answer in <answer>...</answer>.'
+dataset:
+  # Original MathVerse repository JSON + extracted images (not text-only split).
+  path: ${MATHVERSE_ROOT}/testmini.json
+  image_root: ${MATHVERSE_ROOT}
+  original_problems: 60
+  seed: 20260908
+  versions: [Text Dominant, Text Lite, Vision Intensive, Vision Dominant, Vision Only]
+  prompt_field: query_cot
+eval:
+  do_sample: false
+  max_new_tokens: 512
+  max_sequence_tokens: 4096
+  scoring: local_diagnostic
+budget:
+  total_seconds: 3600
+  preparation_seconds: 120
+  per_model_seconds: 1140
+  save_reserve_seconds: 20
+  cleanup_seconds: 60
+calibration:
+  previous_total_seconds: 600
+  previous_samples_per_model: 64
+  previous_model_count: 3
+  note: Assumes the reported 10 minutes covers all three CLEVR evaluations; MathVerse throughput is unmeasured.
