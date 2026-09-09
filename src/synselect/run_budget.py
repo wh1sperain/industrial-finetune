@@ -17,7 +17,7 @@ from synselect.utils.timing import pipeline_estimate
 
 def run_child(command, timeout, log_path):
     """Own only this job's process group; never use name-based GPU process killing."""
-    if timeout <= 0:
+    if timeout is not None and timeout <= 0:
         raise TimeoutError("No wall-clock budget remains")
     with Path(log_path).open("w", encoding="utf-8") as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,

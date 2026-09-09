@@ -27,11 +27,26 @@ eval:
   do_sample: false
   max_new_tokens: 512
   max_sequence_tokens: 4096
-  scoring: local_diagnostic
+  scoring: deepseek_api
+# Applied by --no-time-limit; finite token bounds still protect GPU memory.
+unlimited_eval:
+  max_new_tokens: 2048
+  max_sequence_tokens: 6144
+judge:
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  api_key_env: DEEPSEEK_API_KEY
+  concurrency: 8
+  request_timeout_seconds: 30
+  max_retries: 2
+  retry_backoff_seconds: 1
+  max_tokens: 512
+  cache_dir: output/synselect/mathverse_judge_cache
 budget:
   total_seconds: 3600
   preparation_seconds: 120
-  per_model_seconds: 1140
+  per_model_seconds: 940
+  judge_seconds: 600
   save_reserve_seconds: 20
   cleanup_seconds: 60
 calibration:

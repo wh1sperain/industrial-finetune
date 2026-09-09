@@ -75,12 +75,12 @@ class MathVerseTests(unittest.TestCase):
                 (output / 'samples.json').write_text(json.dumps(fixture()[:5]), encoding='utf-8')
             elif worker == 'sft':
                 raise TimeoutError('fixture deadline')
-        with tempfile.TemporaryDirectory() as tmp, patch('synselect.mathverse.run_child', fake_child), patch('builtins.print'):
+        with tempfile.TemporaryDirectory() as tmp, patch('synselect.mathverse.run_child', fake_child), patch('builtins.print'), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'test-only'}):
             output = Path(tmp) / 'run'
             run(cfg, 'mathverse_1h', output)
             report = json.loads((output / 'report.json').read_text())
             self.assertEqual(report['stages']['sft']['status'], 'timeout')
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 5)
             self.assertTrue(all(c[2] == 'synselect.mathverse' for c in calls))
             self.assertFalse(report['complete'])
 
@@ -89,6 +89,27 @@ class MathVerseTests(unittest.TestCase):
             path = Path(tmp) / 'predictions.jsonl'
             path.write_text('{"sample_index":"1"}\n{"sam', encoding='utf-8')
             self.assertEqual(set(read_predictions(path)), {'1'})
+
+    def test_unlimited_supervisor_removes_every_stage_timeout(self):
+        cfg = load_eval_config('mathverse_1h')
+        cfg['models'] = {'baseline': None, 'sft': None, 'grpo': None}
+        cfg['no_time_limit'] = True
+        cfg['eval'].update(cfg['unlimited_eval'])
+        calls = []
+        def child(command, timeout, log):
+            calls.append((command, timeout))
+            output = Path(command[command.index('--output') + 1])
+            frozen = json.loads((output / 'resolved_config.json').read_text(encoding='utf-8'))
+            self.assertTrue(frozen['no_time_limit'])
+            self.assertEqual(frozen['eval']['max_new_tokens'], 2048)
+            if command[command.index('--worker') + 1] == 'prepare':
+                (output / 'samples.json').write_text(json.dumps(fixture()[:5]))
+        with tempfile.TemporaryDirectory() as tmp, patch('synselect.mathverse.run_child', child), patch('builtins.print'), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'test-only'}):
+            output = Path(tmp) / 'run'
+            run(cfg, 'mathverse_1h', output)
+            self.assertEqual(len(calls), 5)
+            self.assertTrue(all(timeout is None and '--deadline' not in command for command, timeout in calls))
+            self.assertIsNone(json.loads((output / 'report.json').read_text())['budget_seconds'])
 
 
 if __name__ == '__main__':

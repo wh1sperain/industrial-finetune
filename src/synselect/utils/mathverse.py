@@ -76,8 +76,12 @@ def score(prediction, answer):
     return extracted, bool(extracted and normalize(extracted) == normalize(answer))
 
 
-def summarize(tables, selected, versions):
+def summarize(tables, selected, versions, scoring='local_diagnostic_not_official_MathVerse'):
     expected = {str(r['sample_index']): r for r in selected}
+    attempted = tables
+    # API errors and unjudged generations must not be counted as wrong answers.
+    tables = {name: {k: r for k, r in table.items() if type(r.get('correct')) is bool}
+              for name, table in tables.items()}
     common = set(expected).intersection(*(set(t) for t in tables.values()))
     groups = defaultdict(set)
     for key, row in expected.items():
@@ -86,10 +90,12 @@ def summarize(tables, selected, versions):
     def metrics(table, ids):
         rows = [table[k] for k in ids]
         return {'samples': len(rows),
-                'local_answer_match': sum(r['correct'] for r in rows) / len(rows) if rows else None,
+                ('local_answer_match' if scoring.startswith('local_') else 'judge_accuracy'):
+                    sum(r['correct'] for r in rows) / len(rows) if rows else None,
                 'extraction_rate': sum(bool(r['extraction']) for r in rows) / len(rows) if rows else None,
                 'truncation_rate': sum(r['truncated'] for r in rows) / len(rows) if rows else None}
-    return {'scoring': 'local_diagnostic_not_official_MathVerse',
+    return {'scoring': scoring,
+            'unscored_by_model': {name: len(attempted[name]) - len(table) for name, table in tables.items()},
             'requested_samples_per_model': len(expected), 'paired_samples': len(paired),
             'paired_original_problems': len(paired) // len(versions),
             'complete': all(set(t) == set(expected) for t in tables.values()),

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 import time
+from urllib.parse import urlparse
 
 from industrial_ft.utils.config import REPO_ROOT, load_yaml, resolve_model_name
 from synselect.data import make_prompt, read_records
@@ -29,13 +30,25 @@ def load_eval_config(name):
         raise ValueError('This entry accepts evaluation-only configurations')
     if cfg['model_options']['attn_implementation'] != 'sdpa' or cfg['eval']['do_sample'] is not False:
         raise ValueError('Require SDPA and deterministic evaluation')
-    if cfg['eval']['scoring'] != 'local_diagnostic':
-        raise ValueError('Only local diagnostic scoring is implemented; export for official judging')
+    if cfg['eval']['scoring'] not in ('local_diagnostic', 'deepseek_api'):
+        raise ValueError('Unsupported scoring method')
+    if cfg['eval']['scoring'] == 'deepseek_api':
+        judge = cfg['judge']
+        url = urlparse(judge['base_url'])
+        if url.scheme != 'https' or not url.netloc or url.username or url.password or url.query:
+            raise ValueError('Judge base_url must be HTTPS without credentials or query parameters')
+        for key in ('concurrency', 'request_timeout_seconds', 'retry_backoff_seconds', 'max_tokens'):
+            if judge[key] <= 0:
+                raise ValueError(f'judge.{key} must be positive')
+        if judge['max_retries'] < 0 or b.get('judge_seconds', 0) <= b['save_reserve_seconds']:
+            raise ValueError('Invalid API retry/judge budget')
     if not cfg['models'] or any(not re.fullmatch(r'[\w-]+', k) for k in cfg['models']):
         raise ValueError('Provide models with safe output names')
+    if set(cfg['models']) & {'prepare', '_judge'}:
+        raise ValueError('Model names conflict with reserved worker names')
     if any(b[k] <= 0 for k in b) or b['save_reserve_seconds'] >= b['per_model_seconds']:
         raise ValueError('Invalid time budgets')
-    if b['preparation_seconds'] + len(cfg['models']) * b['per_model_seconds'] + b['cleanup_seconds'] > b['total_seconds']:
+    if b['preparation_seconds'] + len(cfg['models']) * b['per_model_seconds'] + b.get('judge_seconds', 0) + b['cleanup_seconds'] > b['total_seconds']:
         raise ValueError('Stage allocations exceed overall budget')
     versions = cfg['dataset']['versions']
     if len(versions) != 5 or len(set(versions)) != 5 or 'Vision Only' not in versions:
@@ -44,6 +57,9 @@ def load_eval_config(name):
         raise ValueError('Use version-specific query, never question_for_eval as model input')
     if cfg['eval']['max_new_tokens'] <= 0 or cfg['dataset']['original_problems'] <= 0:
         raise ValueError('Sample and token limits must be positive')
+    for spec in (cfg['eval'], cfg.get('unlimited_eval', cfg['eval'])):
+        if spec['max_new_tokens'] <= 0 or spec['max_sequence_tokens'] <= spec['max_new_tokens']:
+            raise ValueError('Sequence limit must exceed the positive generation token limit')
     cfg['model_name_or_path'] = resolve_model_name(cfg['model'])
     cfg['output_dir'] = str(local_path(cfg['output_dir']))
     return cfg
@@ -113,7 +129,7 @@ def infer(cfg, output, name, deadline):
                 break  # never score a deadline-interrupted generation
             tokens = generated[0, inputs.input_ids.shape[1]:]
             prediction = processor.tokenizer.decode(tokens, skip_special_tokens=True)
-            extracted, correct = score(prediction, row['answer'])
+            extracted, correct = score(prediction, row['answer']) if cfg['eval']['scoring'] == 'local_diagnostic' else ('', None)
             eos = model.generation_config.eos_token_id
             eos = eos if isinstance(eos, list) else [eos]
             result = {**row, 'model_answer': prediction, 'extraction': extracted, 'correct': correct,
@@ -125,28 +141,42 @@ def infer(cfg, output, name, deadline):
 
 def run(cfg, experiment, output):
     started = time.monotonic()
+    unlimited = cfg.get('no_time_limit', False)
     end = started + cfg['budget']['total_seconds']
     work_end = end - cfg['budget']['cleanup_seconds']
     output.mkdir(parents=True, exist_ok=False)
+    write_json(output / 'resolved_config.json', cfg)
     statuses = {}
     try:
+        if cfg['eval']['scoring'] == 'deepseek_api':
+            from synselect.utils.mathverse_judge import require_key
+            require_key(cfg['judge'])  # fail before spending GPU time if the key is missing
         for adapter in cfg['models'].values():
             if adapter and not (local_path(adapter) / 'adapter_config.json').is_file():
                 raise FileNotFoundError(f'Missing existing adapter: {adapter}')
         command = [sys.executable, '-m', 'synselect.mathverse', '--experiment', experiment,
                    '--output', str(output)]
         run_child(command + ['--worker', 'prepare'],
-                  min(cfg['budget']['preparation_seconds'], work_end - time.monotonic()), output / 'prepare.log')
+                  None if unlimited else min(cfg['budget']['preparation_seconds'], work_end - time.monotonic()), output / 'prepare.log')
         for name in cfg['models']:
-            seconds = min(cfg['budget']['per_model_seconds'], work_end - time.monotonic())
-            deadline = time.time() + seconds
+            seconds = min(cfg['budget']['per_model_seconds'], work_end - time.monotonic() - cfg['budget'].get('judge_seconds', 0))
+            deadline_args = [] if unlimited else ['--deadline', str(time.time() + seconds)]
             begin = time.monotonic()
             try:
-                run_child(command + ['--worker', name, '--deadline', str(deadline)], seconds, output / f'{name}.log')
+                run_child(command + ['--worker', name] + deadline_args, None if unlimited else seconds, output / f'{name}.log')
                 statuses[name] = {'status': 'finished'}
             except TimeoutError as error:
                 statuses[name] = {'status': 'timeout', 'error': str(error)}
             statuses[name]['seconds'] = time.monotonic() - begin
+        if cfg['eval']['scoring'] == 'deepseek_api':
+            seconds = min(cfg['budget']['judge_seconds'], work_end - time.monotonic())
+            try:
+                deadline_args = [] if unlimited else ['--deadline', str(time.time() + seconds)]
+                run_child(command + ['--worker', '_judge'] + deadline_args,
+                          None if unlimited else seconds, output / 'judge.log')
+                statuses['judge'] = {'status': 'finished'}
+            except TimeoutError as error:
+                statuses['judge'] = {'status': 'timeout', 'error': str(error)}
     except Exception as error:
         statuses['error'] = str(error)
         raise
@@ -155,14 +185,63 @@ def run(cfg, experiment, output):
         if samples_path.exists():
             rows = json.loads(samples_path.read_text(encoding='utf-8'))
             tables = {name: read_predictions(output / f'{name}.jsonl') for name in cfg['models']}
-            report = summarize(tables, rows, cfg['dataset']['versions'])
+            if cfg['eval']['scoring'] == 'deepseek_api':
+                from synselect.mathverse_score import scored_tables
+                tables = scored_tables(cfg, output, output)
+            report = summarize(tables, rows, cfg['dataset']['versions'], scoring_label(cfg))
             for name, table in tables.items():
                 # Compatible model-output array for official extraction / judgment tools.
                 write_json(output / f'{name}.official_input.json', list(table.values()))
         else:
             report = {'complete': False}
         report.update({'stages': statuses, 'elapsed_seconds': time.monotonic() - started,
-                       'budget_seconds': cfg['budget']['total_seconds']})
+                       'budget_seconds': None if unlimited else cfg['budget']['total_seconds'],
+                       'no_time_limit': unlimited,
+                       'max_new_tokens': cfg['eval']['max_new_tokens']})
+        write_json(output / 'report.json', report)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def scoring_label(cfg):
+    return (f"{cfg['judge']['model']}_judge_not_official_MathVerse" if cfg['eval']['scoring'] == 'deepseek_api'
+            else 'local_diagnostic_not_official_MathVerse')
+
+
+def rescore(cfg, experiment, source, output):
+    from synselect.mathverse_score import scored_tables
+    from synselect.utils.mathverse_judge import require_key
+    if cfg['eval']['scoring'] != 'deepseek_api':
+        raise ValueError('--rescore requires deepseek_api scoring')
+    require_key(cfg['judge'])
+    rows = json.loads((source / 'samples.json').read_text(encoding='utf-8'))
+    previous = json.loads((source / 'resolved_config.json').read_text(encoding='utf-8'))
+    cfg['models'] = previous['models']
+    cfg['dataset']['versions'] = previous['dataset']['versions']
+    if not any((source / f'{name}.jsonl').is_file() for name in cfg['models']):
+        raise FileNotFoundError('No saved prediction JSONL files in the source run')
+    output.mkdir(parents=True, exist_ok=False)
+    write_json(output / 'resolved_config.json', cfg)
+    write_json(output / 'samples.json', rows)
+    started = time.monotonic()
+    status = 'finished'
+    try:
+        seconds = cfg['budget']['judge_seconds']
+        unlimited = cfg.get('no_time_limit', False)
+        deadline_args = [] if unlimited else ['--deadline', str(time.time() + seconds)]
+        run_child([sys.executable, '-m', 'synselect.mathverse', '--experiment', experiment,
+                   '--worker', '_judge', '--source', str(source), '--output', str(output)] + deadline_args,
+                  None if unlimited else seconds, output / 'judge.log')
+    except TimeoutError:
+        status = 'timeout'
+    except Exception:
+        status = 'failed'
+        raise
+    finally:
+        tables = scored_tables(cfg, source, output)
+        report = summarize(tables, rows, cfg['dataset']['versions'], scoring_label(cfg))
+        report.update({'source_run': str(source), 'status': status, 'inference': False,
+                       'no_time_limit': cfg.get('no_time_limit', False),
+                       'elapsed_seconds': time.monotonic() - started})
         write_json(output / 'report.json', report)
         print(json.dumps(report, ensure_ascii=False, indent=2))
 
@@ -172,27 +251,47 @@ def main():
     parser.add_argument('--experiment', default='mathverse_1h')
     parser.add_argument('--output', help='New run directory; existing results are never overwritten')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--no-time-limit', action='store_true',
+                        help='Disable total/stage deadlines; use unlimited_eval token limits for new inference')
+    parser.add_argument('--rescore', help='Existing run directory: score saved answers only, no GPU or dataset needed')
+    parser.add_argument('--source', help=argparse.SUPPRESS)
     parser.add_argument('--worker', help=argparse.SUPPRESS)
     parser.add_argument('--deadline', type=float, help=argparse.SUPPRESS)
     args = parser.parse_args()
     cfg = load_eval_config(args.experiment)
-    output = local_path(args.output or cfg['output_dir'])
+    cfg['no_time_limit'] = args.no_time_limit
+    if args.no_time_limit and not args.rescore:
+        cfg['eval'].update(cfg.get('unlimited_eval', {}))
+    output = local_path(args.output or (str(local_path(args.rescore) / 'deepseek_scores') if args.rescore else cfg['output_dir']))
     if args.dry_run:
         c = cfg['calibration']
         samples = cfg['dataset']['original_problems'] * len(cfg['dataset']['versions'])
         print(json.dumps({'training': False, 'dataset': 'MathVerse testmini (five visual versions)',
                           'models': cfg['models'], 'samples_per_model': samples,
-                          'total_generations': samples * len(cfg['models']),
-                          'linear_estimate_minutes': c['previous_total_seconds'] * samples * len(cfg['models']) /
+                          'total_generations': 0 if args.rescore else samples * len(cfg['models']),
+                          'linear_estimate_minutes': None if args.rescore or args.no_time_limit else
+                          c['previous_total_seconds'] * samples * len(cfg['models']) /
                           (c['previous_samples_per_model'] * c['previous_model_count']) / 60,
-                          'estimate_assumption': c['note'], 'budget': cfg['budget'],
-                          'scoring': cfg['eval']['scoring'], 'output': str(output)}, indent=2))
+                          'estimate_assumption': c['note'],
+                          'budget': None if args.no_time_limit else cfg['budget'],
+                          'no_time_limit': args.no_time_limit, 'max_new_tokens': cfg['eval']['max_new_tokens'],
+                          'scoring': cfg['eval']['scoring'], 'judge': cfg.get('judge'),
+                          'rescore_only': bool(args.rescore), 'output': str(output)}, indent=2))
+    elif args.rescore:
+        rescore(cfg, args.experiment, local_path(args.rescore), output)
     elif args.worker == 'prepare':
+        cfg = json.loads((output / 'resolved_config.json').read_text(encoding='utf-8'))
         prepare(cfg, output)
     elif args.worker:
         # Freeze inference settings to the supervisor's audited configuration.
         cfg = json.loads((output / 'resolved_config.json').read_text(encoding='utf-8'))
-        if args.worker not in cfg['models'] or args.deadline is None:
+        if args.worker == '_judge':
+            from synselect.mathverse_score import judge_saved
+            if args.deadline is None and not cfg.get('no_time_limit'):
+                parser.error('Judge worker needs a deadline')
+            judge_saved(cfg, local_path(args.source) if args.source else output, output, args.deadline)
+            return
+        if args.worker not in cfg['models'] or (args.deadline is None and not cfg.get('no_time_limit')):
             parser.error('Worker needs a configured model and deadline')
         infer(cfg, output, args.worker, args.deadline)
     else:
