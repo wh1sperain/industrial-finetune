@@ -1,0 +1,1 @@
+"""Dependency-light benchmark utilities."""

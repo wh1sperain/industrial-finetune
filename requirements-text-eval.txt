@@ -1,0 +1,8 @@
+# Inference-only environment. First provide a driver-compatible Blackwell torch build.
+# Validated on Python 3.12, torch 2.12.1+cu130, RTX 5090 (sm_120).
+# Run via scripts/experiments/industrial_text/eval.sh; PYTHONPATH is set there.
+transformers==4.57.6
+accelerate==1.12.0
+huggingface-hub==0.36.0
+pyyaml==6.0.3
+jieba==0.42.1

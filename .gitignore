@@ -22,6 +22,9 @@ env/
 # ---- 数据与权重（一律不入库，见 docs/数据管理.md）----
 data/raw/
 data/processed/
+data/benchmark数据集整理/
+.autodl-work/
+results/
 output/
 checkpoints/
 *.safetensors
