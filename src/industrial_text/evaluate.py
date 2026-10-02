@@ -213,11 +213,12 @@ def main():
             elapsed = time.perf_counter()-started
             eos = model.generation_config.eos_token_id
             eos = set(eos if isinstance(eos, list) else [eos])
-            for record, output in zip(batch, outputs):
+            for index, (record, output) in enumerate(zip(batch, outputs)):
                 ids = output[inputs["input_ids"].shape[1]:].tolist()
                 stop = next((i for i, token in enumerate(ids) if token in eos), None)
                 used = ids if stop is None else ids[:stop]
                 row = {"id": record["id"], "prediction": tokenizer.decode(used, skip_special_tokens=True),
+                       "input_tokens": int(inputs["attention_mask"][index].sum().item()),
                        "output_tokens": len(used), "truncated": stop is None and len(ids) >= g["max_new_tokens"],
                        "generation_seconds": elapsed/len(batch), "batch_size": len(batch),
                        "gpu_peak_allocated_gb": torch.cuda.max_memory_allocated()/1024**3, "error": None}

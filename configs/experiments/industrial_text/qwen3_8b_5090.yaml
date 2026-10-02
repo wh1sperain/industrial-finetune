@@ -10,11 +10,11 @@ model_settings:
 generation:
   enable_thinking: false
   do_sample: false
-  batch_size: 4
+  batch_size: 8
   max_input_tokens: 8192
   max_new_tokens: 2048
   system_prompt: >-
-    请回答工业领域试题。只在 <answer> 和 </answer> 标签之间给出最终答案，不要输出分析过程。
+    请使用题目所用语言回答工业领域试题。只在 <answer> 和 </answer> 标签之间给出最终答案，不要输出分析过程。
     选择题仅填写选项字母，多选题列出所有所选字母；判断题仅填写“正确”或“错误”；
     填空题按顺序填写各空答案；计算题保留必要的数值和单位；简答与论述题简洁列出主要要点。
   user_template: '问：{prompt}'
