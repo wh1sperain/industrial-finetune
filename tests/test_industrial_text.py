@@ -3,6 +3,8 @@ import json
 import pytest
 
 from industrial_text.evaluate import read_predictions
+from industrial_text.utils.generation import completion_status, output_budgets
+from industrial_text.utils.generation import completion_status, output_budgets
 from industrial_text.utils.benchmark import (
     aggregate, boolean_answer, choice_answer, final_answer, load_records, normalize,
     options, score, stratified_sample,
@@ -75,3 +77,37 @@ def test_resume_rejects_duplicate_ids(tmp_path):
     path.write_text('{"id":"one"}\n{"id":"one"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="Duplicate"):
         read_predictions(path)
+
+
+def test_output_budgets_respect_context_and_remove_duplicate_clamps():
+    g = {"max_new_tokens": 8192, "retry_max_new_tokens": [16384, 24576], "context_limit": 32768}
+    assert output_budgets(g, 1000) == [8192, 16384, 24576]
+    assert output_budgets(g, 20000) == [8192, 12768]
+    with pytest.raises(ValueError, match="context"):
+        output_budgets(g, 32768)
+    with pytest.raises(ValueError, match="increasing"):
+        output_budgets({**g, "retry_max_new_tokens": [4096]}, 10)
+
+
+def test_only_explicit_completion_avoids_length_truncation():
+    assert completion_status([1, 2, 3], {9}, "<answer>x", 3, "</answer>")[:2] == ("length", True)
+    assert completion_status([1, 2, 3], {9}, "<answer>x</answer>", 3, "</answer>")[:2] == ("answer_end", False)
+    assert completion_status([1, 9, 9], {9}, "x", 3)[0] == "eos"
+    assert completion_status([1], {9}, "x", 3)[0] == "unexpected_stop"
+
+
+def test_output_budgets_respect_context_and_remove_duplicate_clamps():
+    g = {"max_new_tokens": 8192, "retry_max_new_tokens": [16384, 24576], "context_limit": 32768}
+    assert output_budgets(g, 1000) == [8192, 16384, 24576]
+    assert output_budgets(g, 20000) == [8192, 12768]
+    with pytest.raises(ValueError, match="context"):
+        output_budgets(g, 32768)
+    with pytest.raises(ValueError, match="increasing"):
+        output_budgets({**g, "retry_max_new_tokens": [4096]}, 10)
+
+
+def test_only_explicit_completion_avoids_length_truncation():
+    assert completion_status([1, 2, 3], {9}, "<answer>x", 3, "</answer>")[:2] == ("length", True)
+    assert completion_status([1, 2, 3], {9}, "<answer>x</answer>", 3, "</answer>")[:2] == ("answer_end", False)
+    assert completion_status([1, 9, 9], {9}, "x", 3)[0] == "eos"
+    assert completion_status([1], {9}, "x", 3)[0] == "unexpected_stop"

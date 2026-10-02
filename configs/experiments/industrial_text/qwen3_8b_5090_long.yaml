@@ -1,0 +1,28 @@
+model: Qwen/Qwen3-8B
+output_dir: /root/autodl-tmp/results/qwen3-8b-long
+dataset: /root/autodl-tmp/datasets/industrial-text
+seed: 42
+probe_size: 50
+model_settings:
+  dtype: bfloat16
+  attn_implementation: sdpa
+  trust_remote_code: false
+generation:
+  enable_thinking: false
+  do_sample: false
+  batch_size: 8
+  max_input_tokens: 8192
+  context_limit: 32768
+  max_new_tokens: 8192
+  retry_max_new_tokens: [16384, 24576]
+  repetition_penalty: 1.05
+  answer_stop: '</answer>'
+  system_prompt: >-
+    请使用题目所用语言回答工业领域试题。只在 <answer> 和 </answer> 标签之间给出最终答案，不要输出分析过程。
+    选择题仅填写选项字母，多选题列出所有所选字母；判断题仅填写“正确”或“错误”；
+    填空题按顺序填写各空答案；计算题保留必要的数值和单位；简答与论述题简洁列出主要要点。
+  user_template: '问：{prompt}'
+diagnostics:
+  keyword_top_k: 12
+  keyword_min_length: 2
+review_per_subject: 3

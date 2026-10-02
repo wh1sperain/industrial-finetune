@@ -12,6 +12,7 @@ from pathlib import Path
 
 from industrial_text.utils.benchmark import load_records, score, stratified_sample, summarize
 from industrial_text.utils.config import load_config
+from industrial_text.utils.generation import completion_status, output_budgets
 
 
 def write_json(path, value):
@@ -68,6 +69,10 @@ def emit_report(out, records, predictions, audit, cfg):
     coverages = [r["score"]["keyword_coverage_diagnostic"] for r in rows
                  if r["score"].get("keyword_coverage_diagnostic") is not None]
     summary.update(expected=len(records), completed=len(rows), dataset_sha256=audit["dataset_sha256"],
+                   retried_samples=sum(r.get("attempt_count", 1) > 1 for r in rows),
+                   initial_length_limit_hits=sum(r.get("initial_truncated", r.get("truncated", False)) for r in rows),
+                   final_truncation_rate=sum(r.get("truncated", False) for r in rows)/len(rows) if rows else None,
+                   generation_settings=cfg["generation"],
                    keyword_coverage_diagnostic=sum(coverages)/len(coverages) if coverages else None,
                    gpu_peak_allocated_gb=max((r.get("gpu_peak_allocated_gb", 0) for r in rows), default=0),
                    generation_seconds=sum(r.get("generation_seconds", 0) for r in rows),
@@ -91,7 +96,9 @@ def emit_report(out, records, predictions, audit, cfg):
     for subject, item in summary["by_subject"].items():
         lines.append(f"| {subject} | {item['total']} | {item['objective_n']} | {pct(item['accuracy'])} | {item['parse_failures']} |")
     raw = summary["raw"]
-    lines += ["", f"生成错误：{raw['errors']}；截断：{raw['truncated']}；空回答：{raw['empty']}。",
+    lines += ["", f"生成错误：{raw['errors']}；最终截断：{raw['truncated']}；无完整最终答案：{raw['empty']}。",
+              f"首次触及长度上限：{summary['initial_length_limit_hits']}；重试题数：{summary['retried_samples']}；最终截断率：{pct(summary['final_truncation_rate'])}。",
+              f"生成设置：初始上限 {cfg['generation']['max_new_tokens']} token；重试上限 {cfg['generation'].get('retry_max_new_tokens', [])}；重复惩罚 {cfg['generation'].get('repetition_penalty', 1.0)}。",
               f"开放/填空参考关键词覆盖率（诊断）：{pct(summary['keyword_coverage_diagnostic'])}。",
               f"生成总耗时：{summary['generation_seconds']:.1f} 秒；GPU 峰值分配：{summary['gpu_peak_allocated_gb']:.2f} GiB。",
               "", "## 数据审计", "", f"数据 SHA256：`{audit['dataset_sha256']}`", "",
@@ -183,49 +190,94 @@ def main():
                    "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()}
     write_json(out / "environment.json", environment)
     g = cfg["generation"]
+    g.setdefault("context_limit", model.config.max_position_embeddings)
     size = g["batch_size"]
-    with predfile.open("a", encoding="utf-8") as stream:
+    def generate(batch, budget):
+        texts = [tokenizer.apply_chat_template([
+            {"role": "system", "content": g["system_prompt"]},
+            {"role": "user", "content": g["user_template"].format(prompt=r["question"])}],
+            tokenize=False, add_generation_prompt=True, enable_thinking=g["enable_thinking"]) for r in batch]
+        inputs = tokenizer(texts, return_tensors="pt", padding=True, add_special_tokens=False)
+        width = inputs["input_ids"].shape[1]
+        if width > g["max_input_tokens"]:
+            raise ValueError("Input exceeds configured limit; refusing silent prompt truncation")
+        budget = min(budget, g["context_limit"] - width)
+        if budget <= 0:
+            raise ValueError("Input exhausts the model context")
+        inputs = inputs.to("cuda")
+        started = time.perf_counter()
+        kwargs = {}
+        if g.get("answer_stop"):
+            kwargs.update(stop_strings=[g["answer_stop"]], tokenizer=tokenizer)
+        with torch.inference_mode():
+            outputs = model.generate(**inputs, max_new_tokens=budget,
+                do_sample=g["do_sample"], temperature=None, top_p=None, top_k=None,
+                repetition_penalty=g.get("repetition_penalty", 1.0),
+                pad_token_id=tokenizer.pad_token_id, **kwargs)
+        torch.cuda.synchronize()
+        elapsed = time.perf_counter()-started
+        eos = model.generation_config.eos_token_id
+        eos = set(eos if isinstance(eos, list) else [eos])
+        result = []
+        for index, (record, output) in enumerate(zip(batch, outputs)):
+            ids = output[width:].tolist()
+            # Finished members of a batch contain trailing padding, not generated tokens.
+            while ids and ids[-1] == tokenizer.pad_token_id and ids[-1] not in eos:
+                ids.pop()
+            decoded = tokenizer.decode(ids, skip_special_tokens=True)
+            reason, truncated, stop = completion_status(ids, eos, decoded, budget, g.get("answer_stop"))
+            used = ids if stop is None else ids[:stop]
+            prediction = tokenizer.decode(used, skip_special_tokens=True)
+            if reason == "answer_end":
+                end = prediction.index(g["answer_stop"]) + len(g["answer_stop"])
+                prediction = prediction[:end]
+            result.append({"id": record["id"], "prediction": prediction,
+                "input_tokens": int(inputs["attention_mask"][index].sum().item()),
+                "output_tokens": len(used), "truncated": truncated,
+                "finish_reason": reason, "max_new_tokens": budget,
+                "generation_seconds": elapsed/len(batch), "batch_size": len(batch),
+                "gpu_peak_allocated_gb": torch.cuda.max_memory_allocated()/1024**3,
+                "error": "unexpected_generation_stop" if reason == "unexpected_stop" else None})
+        return result
+
+    with predfile.open("a", encoding="utf-8") as stream, (out / "attempts.jsonl").open("a", encoding="utf-8") as attempts:
+        def save_attempt(row, number):
+            attempts.write(json.dumps({**row, "attempt": number}, ensure_ascii=False)+"\n")
+            attempts.flush(); os.fsync(attempts.fileno())
+
         while pending:
             batch = pending[:size]
-            texts = [tokenizer.apply_chat_template([
-                {"role": "system", "content": g["system_prompt"]},
-                {"role": "user", "content": g["user_template"].format(prompt=r["question"])}],
-                tokenize=False, add_generation_prompt=True, enable_thinking=g["enable_thinking"]) for r in batch]
-            inputs = tokenizer(texts, return_tensors="pt", padding=True, add_special_tokens=False)
-            if inputs["input_ids"].shape[1] > g["max_input_tokens"]:
-                raise ValueError("Input exceeds configured limit; refusing silent prompt truncation")
-            inputs = inputs.to("cuda")
             started = time.perf_counter()
             try:
-                with torch.inference_mode():
-                    outputs = model.generate(**inputs, max_new_tokens=g["max_new_tokens"],
-                        do_sample=g["do_sample"], temperature=None, top_p=None, top_k=None,
-                        pad_token_id=tokenizer.pad_token_id)
-                torch.cuda.synchronize()
+                generated = generate(batch, g["max_new_tokens"])
             except torch.cuda.OutOfMemoryError:
-                del inputs
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
                 if size == 1:
                     raise
                 size = max(1, size//2)
                 print(f"OOM: reducing batch size to {size}", flush=True)
                 continue
-            elapsed = time.perf_counter()-started
-            eos = model.generation_config.eos_token_id
-            eos = set(eos if isinstance(eos, list) else [eos])
-            for index, (record, output) in enumerate(zip(batch, outputs)):
-                ids = output[inputs["input_ids"].shape[1]:].tolist()
-                stop = next((i for i, token in enumerate(ids) if token in eos), None)
-                used = ids if stop is None else ids[:stop]
-                row = {"id": record["id"], "prediction": tokenizer.decode(used, skip_special_tokens=True),
-                       "input_tokens": int(inputs["attention_mask"][index].sum().item()),
-                       "output_tokens": len(used), "truncated": stop is None and len(ids) >= g["max_new_tokens"],
-                       "generation_seconds": elapsed/len(batch), "batch_size": len(batch),
-                       "gpu_peak_allocated_gb": torch.cuda.max_memory_allocated()/1024**3, "error": None}
+            for record, row in zip(batch, generated):
+                initial_truncated = row["truncated"]
+                elapsed_total = row["generation_seconds"]
+                attempts_n = 1
+                save_attempt(row, attempts_n)
+                for budget in output_budgets(g, row["input_tokens"])[1:]:
+                    if not row["truncated"]:
+                        break
+                    print(f"Retry {record['id']} with {budget} tokens", flush=True)
+                    row = generate([record], budget)[0]
+                    attempts_n += 1
+                    elapsed_total += row["generation_seconds"]
+                    save_attempt(row, attempts_n)
+                row.update(attempt_count=attempts_n, initial_truncated=initial_truncated,
+                           generation_seconds=elapsed_total)
                 stream.write(json.dumps(row, ensure_ascii=False)+"\n")
                 stream.flush(); os.fsync(stream.fileno())
                 predictions.append(row)
-            del inputs, outputs
+            elapsed = time.perf_counter()-started
             pending = pending[len(batch):]
             write_json(out / "progress.json", {"completed": len(predictions), "total": len(records),
                        "last_batch_seconds": elapsed, "batch_size": size})
