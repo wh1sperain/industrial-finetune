@@ -98,7 +98,7 @@ def emit_report(out, records, predictions, audit, cfg):
     raw = summary["raw"]
     lines += ["", f"生成错误：{raw['errors']}；最终截断：{raw['truncated']}；无完整最终答案：{raw['empty']}。",
               f"首次触及长度上限：{summary['initial_length_limit_hits']}；重试题数：{summary['retried_samples']}；最终截断率：{pct(summary['final_truncation_rate'])}。",
-              f"生成设置：初始上限 {cfg['generation']['max_new_tokens']} token；重试上限 {cfg['generation'].get('retry_max_new_tokens', [])}；重复惩罚 {cfg['generation'].get('repetition_penalty', 1.0)}。",
+              f"生成设置：初始上限 {cfg['generation']['max_new_tokens']} token；重试上限 {cfg['generation'].get('retry_max_new_tokens', [])}；重复惩罚 {cfg['generation'].get('repetition_penalty', 1.0)}；重复片段限制 {cfg['generation'].get('no_repeat_ngram_size', 0)} token。",
               f"开放/填空参考关键词覆盖率（诊断）：{pct(summary['keyword_coverage_diagnostic'])}。",
               f"生成总耗时：{summary['generation_seconds']:.1f} 秒；GPU 峰值分配：{summary['gpu_peak_allocated_gb']:.2f} GiB。",
               "", "## 数据审计", "", f"数据 SHA256：`{audit['dataset_sha256']}`", "",
@@ -213,6 +213,7 @@ def main():
             outputs = model.generate(**inputs, max_new_tokens=budget,
                 do_sample=g["do_sample"], temperature=None, top_p=None, top_k=None,
                 repetition_penalty=g.get("repetition_penalty", 1.0),
+                no_repeat_ngram_size=g.get("no_repeat_ngram_size", 0),
                 pad_token_id=tokenizer.pad_token_id, **kwargs)
         torch.cuda.synchronize()
         elapsed = time.perf_counter()-started
